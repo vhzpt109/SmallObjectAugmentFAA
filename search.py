@@ -58,7 +58,7 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
         valid_loss = 0
         for imgs, annotations in valid_data_loader:
             with torch.no_grad():
-                break
+                # break
                 imgs = list(img.to(device) for img in imgs)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations]
 
@@ -66,8 +66,8 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
                 losses = sum(loss for loss in loss_dict.values())
 
                 valid_loss += losses
-                print(f"Model : {model_path}, C: {loss_dict['loss_classifier'].item():.5f}, M: {loss_dict['loss_mask'].item():.5f}, "
-                f"B: {loss_dict['loss_box_reg'].item():.5f}, O: {loss_dict['loss_objectness'].item():.5f}, T: {losses.item():.5f}")
+                print(f"Model : {model_path}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
+                f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
 
                 break
 
