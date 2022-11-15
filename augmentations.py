@@ -183,6 +183,61 @@ def augment_list(for_autoaug=True):  # 16 oeprations and their ranges
     return l
 
 
+def albumentation_augment_list():  # 16 oeprations and their ranges
+    l = [
+        (ShearX, -10, 10),  # 0
+        (ShearY, -10, 10),  # 1
+        (TranslateX, -0.1, 0.1),  # 2
+        (TranslateY, -0.1, 0.1),  # 3
+        (Rotate, -15, 15),  # 4
+        (AutoContrast, 0, 1),  # 5
+        (Invert, 0, 1),  # 6
+        (Equalize, 0, 1),  # 7
+        (Solarize, 0, 256),  # 8
+        (Posterize, 4, 8),  # 9
+        (Contrast, 0.1, 1.9),  # 10
+        (Color, 0.1, 1.9),  # 11
+        (Brightness, 0.1, 1.9),  # 12
+        (Sharpness, 0.1, 1.9),  # 13
+        (Cutout, 0, 0.2),  # 14
+    ]
+    return l
+
+
+def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
+    if name == "ShearX":
+        augmentation_list.append(albumentations.Affine(shear=-5, p=pr))
+    elif name == "ShearY":
+        augmentation_list.append(albumentations.Affine(shear=5, p=pr))
+    elif name == "TranslateX":
+        augmentation_list.append(albumentations.Affine(translate_px=5, p=pr))
+    elif name == "TranslateY":
+        augmentation_list.append(albumentations.Affine(translate_px=5, p=pr))
+    elif name == "Rotate":
+        augmentation_list.append(albumentations.Affine(rotate=10, p=pr))
+    elif name == "AutoContrast":
+        pass
+    elif name == "Invert":
+        augmentation_list.append(albumentations.InvertImg(p=pr))
+    elif name == "Equalize":
+        augmentation_list.append(albumentations.Equalize(p=pr))
+    elif name == "Solarize":
+        augmentation_list.append(albumentations.Solarize(p=pr))
+    elif name == "Posterize":
+        augmentation_list.append(albumentations.Posterize(p=pr))
+    elif name == "Contrast":
+        augmentation_list.append(albumentations.RandomContrast(p=pr))
+    elif name == "Color":
+        augmentation_list.append(albumentations.ColorJitter(p=pr))
+    elif name == "Brightness":
+        augmentation_list.append(albumentations.RandomBrightness(p=pr))
+    elif name == "Sharpness":
+        augmentation_list.append(albumentations.Sharpen(p=pr))
+    elif name == "Cutout":
+        # augmentation_list.append(albumentations.CoarseDropout(max_holes=1, p=pr))
+        pass
+
+
 augment_dict = {fn.__name__: (fn, v1, v2) for fn, v1, v2 in augment_list()}
 
 

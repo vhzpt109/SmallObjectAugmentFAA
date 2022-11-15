@@ -1,4 +1,4 @@
-from augmentations import augment_list
+from augmentations import augment_list, albumentation_augment_list
 
 
 def policy_decoder(augment, num_policy, num_op):

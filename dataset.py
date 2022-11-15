@@ -22,7 +22,7 @@ class COCODataset(Dataset):
                  root='/YDE/COCO',
                  split='train',
                  augmentation=None,
-                 save_visualization=True):
+                 save_visualization=False):
         super().__init__()
 
         self.root = root
@@ -44,15 +44,7 @@ class COCODataset(Dataset):
         self.coco_ids = sorted(self.coco.getCatIds())  # list of coco labels [1, ...11, 13, ... 90]  # 0 ~ 79 to 1 ~ 90
         self.coco_ids_to_continuous_ids = {coco_id: i for i, coco_id in enumerate(self.coco_ids)}  # 1 ~ 90 to 0 ~ 79
         # int to int
-        self.coco_ids_to_class_names = {category['id']: category['name'] for category in
-                                        self.coco.loadCats(self.coco_ids)}  # len 80
-        # int to string
-        # {1 : 'person', 2: 'bicycle', ...}
-        '''
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-         35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-         64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
-        '''
+        self.coco_ids_to_class_names = {category['id']: category['name'] for category in self.coco.loadCats(self.coco_ids)}  # len 80
 
     def __getitem__(self, index):
         img_id = self.img_id[index]
@@ -65,7 +57,6 @@ class COCODataset(Dataset):
         # image = Image.open(file_path).convert('RGB')
         image = cv2.imread(file_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # print(image.shape)
 
         annotation_ids = self.coco.getAnnIds(imgIds=img_id)  # img id 에 해당하는 anno id 를 가져온다.
         annotations = [x for x in self.coco.loadAnns(annotation_ids) if x['image_id'] == img_id]       # anno id 에 해당하는 annotation 을 가져온다.
@@ -73,10 +64,8 @@ class COCODataset(Dataset):
         boxes = np.array([annotation['bbox'] for annotation in annotations], dtype=np.float32)
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
         boxes[:, 3] = boxes[:, 1] + boxes[:, 3]
-        # print(boxes)
 
         labels = np.array([annotation['category_id'] for annotation in annotations], dtype=np.int32)
-        # print(labels)
         masks = np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8)
         # masks = np.stack(np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8), axis=2)
         masks = np.transpose(masks, (1, 2, 0))
@@ -85,22 +74,19 @@ class COCODataset(Dataset):
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            albumentations.VerticalFlip(p=1.0),
-            albumentations.RandomRotate90(p=1.0),
-            # albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
         if self.augmentation is not None:
-            self.albumentation_transforms.transforms.insert(0, self.augmentation)
+            for augmentation in self.augmentation:
+                self.albumentation_transforms.transforms.insert(0, augmentation)
 
         augmented = self.albumentation_transforms(image=image, bboxes=boxes, mask=masks, labels=labels)
         image = augmented["image"]
         boxes = augmented["bboxes"]
         labels = augmented["labels"]
         masks = augmented["mask"]
-
-        # print(masks.shape)
 
         if self.save_visualization:
             cv_image = image.detach().cpu().numpy()
@@ -121,7 +107,6 @@ class COCODataset(Dataset):
 
                 cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 3)
                 cv_image = cv2.putText(cv_image, nms[label - 1], (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-
             cv2.imwrite("visualization/" + file_name, cv_image)
 
             cv_mask = np.zeros((cv_image.shape[0], cv_image.shape[1]), np.uint8)

@@ -5,6 +5,8 @@ import ray
 import time
 import numpy as np
 import torch.distributed as dist
+import albumentations
+import random
 
 from tqdm import tqdm
 from collections import OrderedDict
@@ -12,7 +14,7 @@ from hyperopt import hp
 from ray.tune.suggest.hyperopt import HyperOptSearch
 from ray.tune import register_trainable, run_experiments
 
-from augmentations import augment_list
+from augmentations import augment_list, appendTorchvision2Albumentation
 from archive import remove_deplicates, policy_decoder
 
 from torchvision.models.detection import maskrcnn_resnet50_fpn
@@ -58,7 +60,7 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
         valid_loss = 0
         for imgs, annotations in valid_data_loader:
             with torch.no_grad():
-                # break
+                break
                 imgs = list(img.to(device) for img in imgs)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations]
 
@@ -144,7 +146,9 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
         return model, cross_valid_fold, result
 
 
-def eval_tta(cross_valid_ratio_test, cross_valid_fold, model_path, reporter, num_policy):
+def eval_tta(augment, reporter):
+    cross_valid_ratio_test, cross_valid_fold, save_path = augment['cv_ratio_test'], augment['cv_fold'], augment['save_path']
+
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     # print('Device:', device)
@@ -153,13 +157,21 @@ def eval_tta(cross_valid_ratio_test, cross_valid_fold, model_path, reporter, num
 
     model = get_model_instance_segmentation(num_classes=num_classes).to(device)
 
-    checkpoint = torch.load(model_path)
+    checkpoint = torch.load("/YDE/SmallObjectAugmentFAA/" + save_path)
     model.load_state_dict(checkpoint["state_dict"])
     # model.eval()
 
+    polices = policy_decoder(augment, augment["num_policy"], augment["num_op"])
     valid_loaders = []
-    valid_dataset = COCODataset(root=dataroot, split='val')
-    for _ in range(num_policy):
+    for _ in range(augment["num_policy"]):
+        augmentation = []
+        policy = random.choice(polices)
+        for name, pr, level in policy:
+            appendTorchvision2Albumentation(augmentation, name, pr, level)
+
+        # print(augmentation)
+        valid_dataset = COCODataset(root=augment["dataroot"], split='val', augmentation=augmentation)
+
         valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
                                                         batch_size=1,
                                                         shuffle=False,
@@ -203,8 +215,8 @@ if __name__ == "__main__":
     ray.init(num_gpus=2, webui_host='127.0.0.1')
     print(ray.cluster_resources())
 
-    # train_dataset = COCODataset(root=dataroot, split='train')
-    valid_dataset = COCODataset(root=dataroot, split='val')
+    # train_dataset = COCODataset(root=dataroot, split='train', augmentation=None)
+    valid_dataset = COCODataset(root=dataroot, split='val', augmentation=None, save_visualization=False)
 
     train_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
                                                     batch_size=train_batch_size,
@@ -248,13 +260,14 @@ if __name__ == "__main__":
         if is_done:
             break
 
-    # getting train results
+    # ----- getting train results -----
     model_results = ray.get(parallel_train)
     # for r_model, r_cv, r_dict in model_results:
     #     print('model=%s cross_valid_fold=%d top1_train=%.4f top1_valid=%.4f' % (
     #     r_model, r_cv + 1, r_dict['top1_train'], r_dict['top1_valid']))
     #
-    # Search Augmentation Policies
+
+    # ------ Search Augmentation Policies -----
     ops = augment_list(False)
     space = {}
     for i in range(num_policy):
@@ -269,9 +282,7 @@ if __name__ == "__main__":
     for cross_valid_fold in range(cross_valid_num):
         name = "search_%s_%s_fold%d_ratio%.1f" % (dataset, model, cross_valid_fold, cross_valid_ratio)
         print(name)
-        register_trainable(name, lambda augment, reporter: eval_tta(cross_valid_ratio_test=cross_valid_ratio,
-                                                                    cross_valid_fold=cross_valid_fold, model_path="/YDE/SmallObjectAugmentFAA/" + k_fold_model_paths[cross_valid_fold],
-                                                                    num_policy=num_policy, reporter=reporter))
+        register_trainable(name, lambda augment, reporter: eval_tta(augment=augment, reporter=reporter))
         algo = HyperOptSearch(space, max_concurrent=4 * 20, metric=reward_metric)
 
         exp_config = {
@@ -302,7 +313,6 @@ if __name__ == "__main__":
 
             final_policy = remove_deplicates(final_policy)
             final_policy_set.extend(final_policy)
-
 
     #
     #
