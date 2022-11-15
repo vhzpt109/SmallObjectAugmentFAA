@@ -301,7 +301,7 @@ if __name__ == "__main__":
         results = run_experiments(exp_config, search_alg=algo, scheduler=None, verbose=0, queue_trials=True,
                                   resume=False, raise_on_failed_trial=True)
         results = [x for x in results if x.last_result is not None]
-        results = sorted(results, key=lambda x: x.last_result[reward_metric], reverse=True)
+        results = sorted(results, key=lambda x: x.last_result[reward_metric])
 
         # calculate computation usage
         for result in results:
