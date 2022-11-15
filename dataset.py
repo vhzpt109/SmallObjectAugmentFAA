@@ -22,7 +22,7 @@ class COCODataset(Dataset):
                  root='/YDE/COCO',
                  split='train',
                  augmentation=None,
-                 visualization=True):
+                 save_visualization=True):
         super().__init__()
 
         self.root = root
@@ -33,7 +33,7 @@ class COCODataset(Dataset):
 
         self.augmentation = augmentation
 
-        self.visualization = visualization
+        self.save_visualization = save_visualization
 
         self.img_path = glob.glob(os.path.join(self.root, 'images', self.set_name, '*.jpg'))
         self.coco = COCO(os.path.join(self.root, 'annotations', 'instances_' + self.set_name + '.json'))
@@ -86,7 +86,7 @@ class COCODataset(Dataset):
 
         self.albumentation_transforms = albumentations.Compose([
             albumentations.VerticalFlip(p=1.0),
-            # albumentations.RandomRotate90(p=1.0),
+            albumentations.RandomRotate90(p=1.0),
             # albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
@@ -102,25 +102,35 @@ class COCODataset(Dataset):
 
         # print(masks.shape)
 
-        if self.visualization:
+        if self.save_visualization:
             cv_image = image.detach().cpu().numpy()
             cv_image = np.transpose(cv_image, (1, 2, 0))
             cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
             cv_image = cv_image.astype(np.uint8).copy()
 
+            cats = self.coco.loadCats(self.coco.getCatIds())
+            nms = [cat['name'] for cat in cats]
+            insert_idx_list = [11, 25, 28, 29, 44, 65, 67, 68, 70, 82]
+            for insert_idx in insert_idx_list:
+                nms.insert(insert_idx, "-")
+            nms.append("-")
+
+            for i in range(len(boxes)):
+                x_min, y_min, x_max, y_max = map(int, boxes[i])
+                label = labels[i]
+
+                cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 3)
+                cv_image = cv2.putText(cv_image, nms[label - 1], (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+
             cv2.imwrite("visualization/" + file_name, cv_image)
 
+            cv_mask = np.zeros((cv_image.shape[0], cv_image.shape[1]), np.uint8)
             cv_masks = masks.detach().cpu().numpy()
             cv_masks = np.transpose(cv_masks, (2, 0, 1))
             cv_masks = cv_masks.astype(np.uint8).copy()
-            cv_masks = cv_masks[0, :, :] * 255
-            cv2.imwrite("visualization/" + file_name[:-4] + "_masks.jpg", cv_masks)
-
-
-        # print("image.shape", image.shape)
-        # print("boxes.shape", boxes)
-        # print("labels.shape", labels)
-        # print("masks.shape", masks)
+            for i in range(len(cv_masks)):
+                cv_mask = cv2.bitwise_or(cv_mask, cv_masks[i, :, :] * 255)
+            cv2.imwrite("visualization/" + file_name[:-4] + "_masks.jpg", cv_mask)
 
         result_annotation = {
             'boxes': torch.as_tensor(boxes, dtype=torch.float32),
