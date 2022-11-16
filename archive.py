@@ -2,7 +2,7 @@ from augmentations import augment_list, albumentation_augment_list
 
 
 def policy_decoder(augment, num_policy, num_op):
-    op_list = augment_list(False)
+    op_list = albumentation_augment_list()
     policies = []
     for i in range(num_policy):
         ops = []

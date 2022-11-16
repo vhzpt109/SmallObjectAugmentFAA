@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from PIL import Image
+from augmentations import SmallObjectAugmentation
 
 
 def collate_fn(batch):
@@ -70,11 +71,12 @@ class COCODataset(Dataset):
         # masks = np.stack(np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8), axis=2)
         masks = np.transpose(masks, (1, 2, 0))
 
-        area = np.array([annotation['area'] for annotation in annotations], dtype=np.float32)
+        areas = np.array([annotation['area'] for annotation in annotations], dtype=np.float32)
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            SmallObjectAugmentation(thresh=32*32, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, p=1.0),
+            # albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
@@ -121,7 +123,7 @@ class COCODataset(Dataset):
             'boxes': torch.as_tensor(boxes, dtype=torch.float32),
             'masks': torch.as_tensor(masks, dtype=torch.uint8),
             'labels': torch.as_tensor(labels, dtype=torch.int64),
-            'area': torch.as_tensor(area, dtype=torch.float32),
+            'areas': torch.as_tensor(areas, dtype=torch.float32),
             'iscrowd': torch.as_tensor(iscrowd, dtype=torch.uint8)
         }
 

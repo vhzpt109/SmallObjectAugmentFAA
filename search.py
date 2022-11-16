@@ -169,7 +169,6 @@ def eval_tta(augment, reporter):
         for name, pr, level in policy:
             appendTorchvision2Albumentation(augmentation, name, pr, level)
 
-        # print(augmentation)
         valid_dataset = COCODataset(root=augment["dataroot"], split='val', augmentation=augmentation)
 
         valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
@@ -199,7 +198,7 @@ def eval_tta(augment, reporter):
 if __name__ == "__main__":
     dataroot = "/YDE/COCO"
     dataset = "COCO"
-    model = "Faster_R-CNN"
+    model = "Mask_R-CNN"
     # until = 5
     num_op = 2
     num_policy = 5
@@ -216,7 +215,7 @@ if __name__ == "__main__":
     print(ray.cluster_resources())
 
     # train_dataset = COCODataset(root=dataroot, split='train', augmentation=None)
-    valid_dataset = COCODataset(root=dataroot, split='val', augmentation=None, save_visualization=False)
+    valid_dataset = COCODataset(root=dataroot, split='val', augmentation=None, save_visualization=True)
 
     train_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
                                                     batch_size=train_batch_size,
