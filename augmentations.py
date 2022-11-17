@@ -244,7 +244,7 @@ def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
 
 
 class SmallObjectAugmentation(DualTransform):
-    def __init__(self, thresh=128*128, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, always_apply=False, p=0.5):
+    def __init__(self, thresh=128*128*2, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, always_apply=False, p=0.5):
         """
         sample = {'img':img, 'annot':annots}
         img = [height, width, 3]
@@ -266,9 +266,6 @@ class SmallObjectAugmentation(DualTransform):
             self.copy_times = 1
 
     def apply_with_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        # print("apply_with_params")
-        # print("params", params)
-        # print("kwargs", kwargs)
         kwargs = self.augment(kwargs)
 
         return kwargs
@@ -318,7 +315,7 @@ class SmallObjectAugmentation(DualTransform):
             for i in range(self.copy_times):
                 new_bbox = self.create_copy_bbox(h, w, bbox, bboxes)
                 if new_bbox is not None:
-                    image = self.add_patch_in_img(new_bbox, bbox, image)
+                    image = self.add_patch_in_img(new_bbox, bbox, image, mask[:, :, bbox_of_small_object])
 
                     temp_bbox = (new_bbox[0] / w, new_bbox[1] / h, new_bbox[2] / w, new_bbox[3] / h, new_bbox[4])
                     bboxes.append(temp_bbox)
@@ -330,15 +327,6 @@ class SmallObjectAugmentation(DualTransform):
                     mask = np.append(mask, temp_mask, axis=2)
 
         return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
-
-    # def get_params(self):
-    #     # print("factor")
-    #     # Random int in the range [0, 3]
-    #     return {"factor": random.randint(0, 3)}
-    #
-    # def get_params_dependent_on_targets(self, params):
-    #     print(params)
-    #     return {"params": params}
 
     def issmallobject(self, h, w):
         if h * w <= self.thresh:
@@ -381,12 +369,14 @@ class SmallObjectAugmentation(DualTransform):
             return new_bbox
         return None
 
-    def add_patch_in_img(self, new_bbox, bbox, image):
-        # copy_bbox = copy_bbox.astype(np.int)
+    def add_patch_in_img(self, new_bbox, bbox, image, mask):
         new_bbox = list(map(int, new_bbox))
         bbox = list(map(int, bbox))
 
-        image[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], :] = image[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
+        a = np.ones(image[bbox[1]:bbox[3], bbox[0]:bbox[2], :].shape, image[bbox[1]:bbox[3], bbox[0]:bbox[2], :].dtype) * 255
+        center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+        image = cv2.seamlessClone(image[bbox[1]:bbox[3], bbox[0]:bbox[2], :], image, a, center, cv2.NORMAL_CLONE)
+        # image[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], :] = image[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
         return image
 
 
