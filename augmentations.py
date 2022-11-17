@@ -244,7 +244,7 @@ def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
 
 
 class SmallObjectAugmentation(DualTransform):
-    def __init__(self, thresh=32*32, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, always_apply=False, p=0.5):
+    def __init__(self, thresh=128*128, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, always_apply=False, p=0.5):
         """
         sample = {'img':img, 'annot':annots}
         img = [height, width, 3]
@@ -269,7 +269,7 @@ class SmallObjectAugmentation(DualTransform):
         # print("apply_with_params")
         # print("params", params)
         # print("kwargs", kwargs)
-        print(kwargs["mask"].shape)
+        kwargs = self.augment(kwargs)
 
         return kwargs
 
@@ -280,20 +280,20 @@ class SmallObjectAugmentation(DualTransform):
         if np.random.rand() > self.p:
             return sample
 
-        image, bboxes labels, mask = sample['image'], sample['bboxes'], sample['labels'], sample['mask']
+        image, bboxes, labels, mask = sample['image'], sample['bboxes'], sample['labels'], sample['mask']
         h, w = image.shape[0], image.shape[1]
 
         small_object_list = list()
-        for idx in range(bboxes.shape[0]):
+        for idx in range(len(bboxes)):
             bbox = bboxes[idx]
-            bbox_h, bbox_w = bbox[3] - bbox[1], bbox[2] - bbox[0]
+            bbox_h, bbox_w = (bbox[3] - bbox[1]) * h, (bbox[2] - bbox[0]) * w
             if self.issmallobject(bbox_h, bbox_w):
                 small_object_list.append(idx)
 
         l = len(small_object_list)
         # No Small Object
         if l == 0:
-            return sample
+            return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
 
         # Refine the copy_object by the given policy
         # Policy 2:
@@ -306,20 +306,30 @@ class SmallObjectAugmentation(DualTransform):
             copy_object_num = 1
 
         random_list = random.sample(range(l), copy_object_num)
-        bbox_idx_of_small_object = [small_object_list[idx] for idx in random_list]
-        select_bboxes = bboxes[bbox_idx_of_small_object, :]
-        bboxes = bboxes.tolist()
+        bbox_of_small_object = [small_object_list[idx] for idx in random_list]
         for idx in range(copy_object_num):
-            bbox = select_bboxes[idx]
-            box_h, bbox_w = bbox[3] - bbox[1], bbox[2] - bbox[0]
+            bbox = list(bboxes[bbox_of_small_object[idx]])
+            bbox[0] *= w
+            bbox[1] *= h
+            bbox[2] *= w
+            bbox[3] *= h
+            bbox = list(map(round, bbox))
 
             for i in range(self.copy_times):
                 new_bbox = self.create_copy_bbox(h, w, bbox, bboxes)
                 if new_bbox is not None:
-                    image = self.add_patch_in_img(new_bbox, bbox, img)
-                    bboxes.append(new_bbox)
+                    image = self.add_patch_in_img(new_bbox, bbox, image)
 
-        return {'image': image, 'bboxes': np.array(bboxes)}
+                    temp_bbox = (new_bbox[0] / w, new_bbox[1] / h, new_bbox[2] / w, new_bbox[3] / h, new_bbox[4])
+                    bboxes.append(temp_bbox)
+
+                    labels = np.append(labels, new_bbox[4])
+
+                    temp_mask = np.zeros((mask.shape[0], mask.shape[1], 1))
+                    temp_mask[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]] = mask[bbox[1]:bbox[3], bbox[0]:bbox[2], bbox_of_small_object]
+                    mask = np.append(mask, temp_mask, axis=2)
+
+        return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
 
     # def get_params(self):
     #     # print("factor")
@@ -336,46 +346,47 @@ class SmallObjectAugmentation(DualTransform):
         else:
             return False
 
-    def compute_overlap(self, annot_a, annot_b):
-        if annot_a is None:
+    def compute_overlap(self, bbox_a, bbox_b):
+        if bbox_a is None:
             return False
-        left_max = max(annot_a[0], annot_b[0])
-        top_max = max(annot_a[1], annot_b[1])
-        right_min = min(annot_a[2], annot_b[2])
-        bottom_min = min(annot_a[3], annot_b[3])
-        inter = max(0, (right_min-left_max)) * max(0, (bottom_min-top_max))
+        left_max = max(bbox_a[0], bbox_b[0])
+        top_max = max(bbox_a[1], bbox_b[1])
+        right_min = min(bbox_a[2], bbox_b[2])
+        bottom_min = min(bbox_a[3], bbox_b[3])
+        inter = max(0, (right_min - left_max)) * max(0, (bottom_min - top_max))
         if inter != 0:
             return True
         else:
             return False
 
-    def donot_overlap(self, new_annot, annots):
-        for annot in annots:
-            if self.compute_overlap(new_annot, annot):
+    def is_not_overlap(self, new_bbox, bboxes):
+        for bbox in bboxes:
+            if self.compute_overlap(new_bbox, bbox):
                 return False
         return True
 
-    def create_copy_bbox(self, h, w, annot, annots):
-        annot = annot.astype(np.int)
-        annot_h, annot_w = annot[3] - annot[1], annot[2] - annot[0]
+    def create_copy_bbox(self, h, w, bbox, bboxes):
+        bbox_h, bbox_w = bbox[3] - bbox[1], bbox[2] - bbox[0]
         for epoch in range(self.find_copy_area_epoch):
-            random_x, random_y = np.random.randint(int(annot_w / 2), int(w - annot_w / 2)), \
-                                 np.random.randint(int(annot_h / 2), int(h - annot_h / 2))
-            xmin, ymin = random_x - annot_w / 2, random_y - annot_h / 2
-            xmax, ymax = xmin + annot_w, ymin + annot_h
+            random_x, random_y = np.random.randint(bbox_w // 2, w - bbox_w // 2), np.random.randint(bbox_h // 2, h - bbox_h // 2)
+            xmin, ymin = random_x - bbox_w // 2, random_y - bbox_h // 2
+            xmax, ymax = xmin + bbox_w, ymin + bbox_h
             if xmin < 0 or xmax > w or ymin < 0 or ymax > h:
                 continue
-            new_annot = np.array([xmin, ymin, xmax, ymax, annot[4]]).astype(np.int)
+            new_bbox = np.array([xmin, ymin, xmax, ymax, bbox[4]]).astype(np.int)
 
-            if self.donot_overlap(new_annot, annots) is False:
+            if self.is_not_overlap(new_bbox, bboxes) is False:
                 continue
 
-            return new_annot
+            return new_bbox
         return None
 
-    def add_patch_in_img(self, annot, copy_annot, image):
-        copy_annot = copy_annot.astype(np.int)
-        image[annot[1]:annot[3], annot[0]:annot[2], :] = image[copy_annot[1]:copy_annot[3], copy_annot[0]:copy_annot[2], :]
+    def add_patch_in_img(self, new_bbox, bbox, image):
+        # copy_bbox = copy_bbox.astype(np.int)
+        new_bbox = list(map(int, new_bbox))
+        bbox = list(map(int, bbox))
+
+        image[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], :] = image[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
         return image
 
 
