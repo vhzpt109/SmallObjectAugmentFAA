@@ -14,7 +14,7 @@ from hyperopt import hp
 from ray.tune.suggest.hyperopt import HyperOptSearch
 from ray.tune import register_trainable, run_experiments
 
-from augmentations import augment_list, appendTorchvision2Albumentation
+from augmentations import smallobjectaugmentation_list, appendAlbumentation
 from archive import remove_deplicates, policy_decoder
 
 from torchvision.models.detection import maskrcnn_resnet50_fpn
@@ -167,7 +167,7 @@ def eval_tta(augment, reporter):
         augmentation = []
         policy = random.choice(polices)
         for name, pr, level in policy:
-            appendTorchvision2Albumentation(augmentation, name, pr, level)
+            appendAlbumentation(augmentation, name, pr, level)
 
         valid_dataset = COCODataset(root=augment["dataroot"], split='val', augmentation=augmentation)
 
@@ -214,8 +214,8 @@ if __name__ == "__main__":
     ray.init(num_gpus=2, webui_host='127.0.0.1')
     print(ray.cluster_resources())
 
-    # train_dataset = COCODataset(root=dataroot, split='train', augmentation=None)
-    valid_dataset = COCODataset(root=dataroot, split='val', augmentation=None, save_visualization=True)
+    # train_dataset = COCODataset(root=dataroot, split='train')
+    valid_dataset = COCODataset(root=dataroot, split='val')
 
     train_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
                                                     batch_size=train_batch_size,
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     #
 
     # ------ Search Augmentation Policies -----
-    ops = augment_list(False)
+    ops = smallobjectaugmentation_list()
     space = {}
     for i in range(num_policy):
         for j in range(num_op):

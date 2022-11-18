@@ -68,15 +68,13 @@ class COCODataset(Dataset):
 
         labels = np.array([annotation['category_id'] for annotation in annotations], dtype=np.int32)
         masks = np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8)
-        # masks = np.stack(np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8), axis=2)
         masks = np.transpose(masks, (1, 2, 0))
 
         areas = np.array([annotation['area'] for annotation in annotations], dtype=np.float32)
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            SmallObjectAugmentation(thresh=32*32, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, p=1.0),
-            # albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
@@ -107,8 +105,8 @@ class COCODataset(Dataset):
                 x_min, y_min, x_max, y_max = map(int, boxes[i])
                 label = labels[i]
 
-                cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 3)
-                cv_image = cv2.putText(cv_image, nms[label - 1], (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
+                cv_image = cv2.putText(cv_image, nms[label - 1], (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv2.imwrite("visualization/" + file_name, cv_image)
 
             cv_mask = np.zeros((cv_image.shape[0], cv_image.shape[1]), np.uint8)

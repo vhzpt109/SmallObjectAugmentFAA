@@ -208,6 +208,60 @@ def albumentation_augment_list():  # 16 oeprations and their ranges
     ]
     return l
 
+def smallobjectaugmentation_list():  # 13 oeprations and their ranges
+    l = [
+        ("Shear", -10, 10), # 0
+        ("Translate", -0.1, 0.1), # 1
+        ("Rotate", -15, 15), # 2
+        ("Invert", 0, 1), # 3
+        ("Equalize", 0, 1), # 4
+        ("Solarize", 0, 256), # 5
+        ("Posterize", 4, 8), # 6
+        ("RandomContrast", 0.1, 1.9), # 7
+        ("ColorJitter", 0.1, 1.9), # 8
+        ("RandomBrightness", 0.1, 1.9), # 9
+        ("Sharpen", 0.1, 1.9), # 10
+        ("SmallObjectAugment1", -10, 10), # 11
+        ("SmallObjectAugment2", -10, 10), # 12
+        ("SmallObjectAugment3", -10, 10), # 13
+    ]
+    return l
+
+
+def appendAlbumentation(augmentation_list, name, pr, level):
+    if name == "Shear":
+        augmentation_list.append(albumentations.Affine(shear=range_scale(level, -10., 10.), p=pr))
+    elif name == "Translate":
+        augmentation_list.append(albumentations.Affine(translate_percent=range_scale(level, -0.1, 0.1), p=pr))
+    elif name == "Rotate":
+        augmentation_list.append(albumentations.Affine(rotate=range_scale(level, -15, 15), p=pr))
+    elif name == "Invert":
+        augmentation_list.append(albumentations.InvertImg(p=pr))
+    elif name == "Equalize":
+        augmentation_list.append(albumentations.Equalize(p=pr))
+    elif name == "Solarize":
+        augmentation_list.append(albumentations.Solarize(p=pr))
+    elif name == "Posterize":
+        augmentation_list.append(albumentations.Posterize(p=pr))
+    elif name == "Contrast":
+        augmentation_list.append(albumentations.RandomContrast(p=pr))
+    elif name == "Color":
+        augmentation_list.append(albumentations.ColorJitter(p=pr))
+    elif name == "Brightness":
+        augmentation_list.append(albumentations.RandomBrightness(p=pr))
+    elif name == "Sharpness":
+        augmentation_list.append(albumentations.Sharpen(p=pr))
+    elif name == "SmallObjectAugment1":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=1, one_object=True, p=pr))
+    elif name == "SmallObjectAugment2":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=1, p=pr))
+    elif name == "SmallObjectAugment3":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=1, all_objects=True, p=pr))
+
+
+def range_scale(level, minval, maxval):
+    return level * (maxval - minval) + minval
+
 
 def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
     if name == "ShearX":
@@ -220,8 +274,6 @@ def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
         augmentation_list.append(albumentations.Affine(translate_px=5, p=pr))
     elif name == "Rotate":
         augmentation_list.append(albumentations.Affine(rotate=10, p=pr))
-    elif name == "AutoContrast":
-        pass
     elif name == "Invert":
         augmentation_list.append(albumentations.InvertImg(p=pr))
     elif name == "Equalize":
@@ -241,10 +293,16 @@ def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
     elif name == "Cutout":
         # augmentation_list.append(albumentations.CoarseDropout(max_holes=1, p=pr))
         pass
+    elif name == "SmallObjectAugment1":
+        augment_list.append(SmallObjectAugmentation(copy_times=1, one_object=True, p=pr))
+    elif name == "SmallObjectAugment2":
+        augment_list.append(SmallObjectAugmentation(copy_times=1, p=pr))
+    elif name == "SmallObjectAugment3":
+        augment_list.append(SmallObjectAugmentation(copy_times=1, all_objects=True, p=pr))
 
 
 class SmallObjectAugmentation(DualTransform):
-    def __init__(self, thresh=128*128*2, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=True, always_apply=False, p=0.5):
+    def __init__(self, thresh=32*32, copy_times=1, find_copy_area_epoch=30, all_objects=False, one_object=False, always_apply=False, p=0.5):
         """
         sample = {'img':img, 'annot':annots}
         img = [height, width, 3]
@@ -290,7 +348,7 @@ class SmallObjectAugmentation(DualTransform):
         l = len(small_object_list)
         # No Small Object
         if l == 0:
-            return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
+            return sample
 
         # Refine the copy_object by the given policy
         # Policy 2:
@@ -315,7 +373,7 @@ class SmallObjectAugmentation(DualTransform):
             for i in range(self.copy_times):
                 new_bbox = self.create_copy_bbox(h, w, bbox, bboxes)
                 if new_bbox is not None:
-                    image = self.add_patch_in_img(new_bbox, bbox, image, mask[:, :, bbox_of_small_object])
+                    image = self.add_patch_in_img(new_bbox, bbox, image, None)
 
                     temp_bbox = (new_bbox[0] / w, new_bbox[1] / h, new_bbox[2] / w, new_bbox[3] / h, new_bbox[4])
                     bboxes.append(temp_bbox)
@@ -347,8 +405,13 @@ class SmallObjectAugmentation(DualTransform):
         else:
             return False
 
-    def is_not_overlap(self, new_bbox, bboxes):
+    def is_not_overlap(self, h, w, new_bbox, bboxes):
         for bbox in bboxes:
+            bbox = list(bbox)
+            bbox[0] *= w
+            bbox[1] *= h
+            bbox[2] *= w
+            bbox[3] *= h
             if self.compute_overlap(new_bbox, bbox):
                 return False
         return True
@@ -363,7 +426,7 @@ class SmallObjectAugmentation(DualTransform):
                 continue
             new_bbox = np.array([xmin, ymin, xmax, ymax, bbox[4]]).astype(np.int)
 
-            if self.is_not_overlap(new_bbox, bboxes) is False:
+            if self.is_not_overlap(h, w, new_bbox, bboxes) is False:
                 continue
 
             return new_bbox
@@ -373,10 +436,12 @@ class SmallObjectAugmentation(DualTransform):
         new_bbox = list(map(int, new_bbox))
         bbox = list(map(int, bbox))
 
-        a = np.ones(image[bbox[1]:bbox[3], bbox[0]:bbox[2], :].shape, image[bbox[1]:bbox[3], bbox[0]:bbox[2], :].dtype) * 255
-        center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
-        image = cv2.seamlessClone(image[bbox[1]:bbox[3], bbox[0]:bbox[2], :], image, a, center, cv2.NORMAL_CLONE)
-        # image[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], :] = image[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
+        # SeamlessClone bbox copy-paste
+        # center = ((new_bbox[0] + new_bbox[2]) // 2, (new_bbox[1] + new_bbox[3]) // 2)
+        # image = cv2.seamlessClone(image[bbox[1]:bbox[3], bbox[0]:bbox[2], :], image, mask[bbox[1]:bbox[3], bbox[0]:bbox[2], :] * 255, center, cv2.NORMAL_CLONE)
+
+        # Simple bbox copy-paste
+        image[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], :] = image[bbox[1]:bbox[3], bbox[0]:bbox[2], :]
         return image
 
 
