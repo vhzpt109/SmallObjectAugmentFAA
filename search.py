@@ -7,6 +7,7 @@ import numpy as np
 import torch.distributed as dist
 import albumentations
 import random
+import json
 
 from tqdm import tqdm
 from collections import OrderedDict
@@ -22,6 +23,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 from dataset import COCODataset, collate_fn
+from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 # Set cuda
@@ -30,7 +32,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 
 def get_model_instance_segmentation(num_classes):
-    model = maskrcnn_resnet50_fpn(pretrained=True)
+    model = maskrcnn_resnet50_fpn(pretrained=False)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
@@ -55,23 +57,62 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
         print("%s Model Exist! Load Model.." % model_path)
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint["state_dict"])
-        # model.eval()
+        model.eval()
 
         valid_loss = 0
-        for imgs, annotations in valid_data_loader:
+        inference_results = []
+        image_ids = []
+        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
             with torch.no_grad():
-                break
-                imgs = list(img.to(device) for img in imgs)
-                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations]
+                print("%d / %d" % (i, len(valid_data_loader)))
+                imgs = list(img.to(device) for img in images_batch)
+                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
-                loss_dict = model(imgs, annotations)
-                losses = sum(loss for loss in loss_dict.values())
+                inference = model(imgs)
+                # print(inference)
 
-                valid_loss += losses
-                print(f"Model : {model_path}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
-                f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
+                for batch_idx in range(len(images_batch)):
+                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
 
-                break
+                    if len(boxes) > 0:
+                        boxes[:, 2] -= boxes[:, 0]
+                        boxes[:, 3] -= boxes[:, 1]
+                        boxes = boxes.tolist()
+                        boxes = [list(map(round, box)) for box in boxes]
+
+                        for box_id in range(len(boxes)):
+                            box = boxes[box_id]
+                            label = labels[box_id]
+                            score = scores[box_id]
+
+                            # if score < threshold:
+                            #     break
+
+                            image_result = {
+                                'image_id': int(annotations[batch_idx]["img_id"].cpu().item()),
+                                'bbox': box,
+                                'category_id': int(label.item()),
+                                # 'score': score.item(),
+                            }
+
+                            inference_results.append(image_result)
+
+        json.dump(inference_results, open("instances_val2017_bbox_results.json", 'w'), indent=4)
+        
+        coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
+        coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_results.json")
+        # coco_pred = coco_gt.loadRes(resFile="/YDE/COCO/annotations/instances_val2017.json")
+        print(coco_gt)
+        coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+
+        # losses = sum(loss for loss in loss_dict.values())
+
+        # valid_loss += losses
+        # print(f"Model : {model_path}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
+        # f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
 
         result = {}
         return model, cross_valid_fold, result
@@ -90,10 +131,9 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
 
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
-                # print(imgs)
 
                 loss_dict = model(imgs, annotations)
-                # print(loss_dict)
+
                 losses = sum(loss for loss in loss_dict.values())
 
                 losses.backward()
@@ -103,16 +143,13 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
                 print(f"train epoch : {epoch + 1}, batch : {i + 1}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
                       f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
 
-                torch.save({
-                    'epoch': epoch,
-                    'log'  : "test",
-                    'optimizer': optimizer.state_dict,
-                    'state_dict': model.state_dict()
-                }, model_path)
-                # torch.save(model.state_dict(), model_path)
-                break
+            torch.save({
+                'epoch': epoch,
+                'log'  : "test",
+                'optimizer': optimizer.state_dict,
+                'state_dict': model.state_dict()
+            }, model_path)
 
-            model.eval()
             for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
                 with torch.no_grad():
                     imgs = list(img.to(device) for img in images_batch)
@@ -121,10 +158,6 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
                     loss_dict = model(imgs, annotations)
                     # loss_dict = model(imgs)
 
-                    # a = COCOeval(cocoGt=annotations, cocoDt=loss_dict, iouType="bbox")
-                    # a.evaluate()
-                    # a.accumulate()
-                    # a.summarize()
                     # losses = sum(loss for loss in loss_dict.values())
 
                     # valid_loss += losses
@@ -186,6 +219,7 @@ def eval_tta(augment, reporter):
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
                 loss_dict = model(imgs, annotations)
+
                 losses = sum(loss for loss in loss_dict.values())
                 loss.append(losses.item())
                 break

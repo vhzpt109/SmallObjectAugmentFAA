@@ -75,7 +75,7 @@ class COCODataset(Dataset):
 
         self.albumentation_transforms = albumentations.Compose([
             albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-            albumentations.pytorch.ToTensorV2(),
+            albumentations.pytorch.ToTensorV2(transpose_mask=True),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
         if self.augmentation is not None:
@@ -109,12 +109,12 @@ class COCODataset(Dataset):
                 cv_image = cv2.putText(cv_image, nms[label - 1], (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv2.imwrite("visualization/" + file_name, cv_image)
 
-            cv_mask = np.zeros((cv_image.shape[0], cv_image.shape[1]), np.uint8)
+            cv_mask = np.zeros((cv_image.shape[0], cv_image.shape[1], 1), np.uint8)
             cv_masks = masks.detach().cpu().numpy()
-            cv_masks = np.transpose(cv_masks, (2, 0, 1))
+            cv_masks = np.transpose(cv_masks, (1, 2, 0))
             cv_masks = cv_masks.astype(np.uint8).copy()
-            for i in range(len(cv_masks)):
-                cv_mask = cv2.bitwise_or(cv_mask, cv_masks[i, :, :] * 255)
+            for i in range(cv_masks.shape[2]):
+                cv_mask = cv2.bitwise_or(cv_mask, cv_masks[:, :, i] * 255)
             cv2.imwrite("visualization/" + file_name[:-4] + "_masks.jpg", cv_mask)
 
         result_annotation = {
@@ -122,7 +122,8 @@ class COCODataset(Dataset):
             'masks': torch.as_tensor(masks, dtype=torch.uint8),
             'labels': torch.as_tensor(labels, dtype=torch.int64),
             'areas': torch.as_tensor(areas, dtype=torch.float32),
-            'iscrowd': torch.as_tensor(iscrowd, dtype=torch.uint8)
+            'iscrowd': torch.as_tensor(iscrowd, dtype=torch.uint8),
+            'img_id': torch.as_tensor(img_id, dtype=torch.int64)
         }
 
         return image, result_annotation
