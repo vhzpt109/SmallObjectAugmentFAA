@@ -31,6 +31,37 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting fro
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 
+def get_coco_stats(coco_stats, is_print=False):
+    AP_IoU05_95_area_all_maxDets100, AP_IoU05_area_all_maxDets100, AP_IoU075_area_all_maxDets100, AP_IoU05_95_area_small_maxDets100, \
+    AP_IoU05_95_area_medium_maxDets100, AP_IoU05_95_area_large_maxDets100, AR_IoU05_95_area_all_maxDets1, AR_IoU05_95_area_all_maxDets10, \
+    AR_IoU05_95_area_all_maxDets100, AR_IoU05_95_area_small_maxDets100, AR_IoU05_95_area_medium_maxDets100, AR_IoU05_95_area_large_maxDets100 \
+        = map(float, coco_stats)
+
+    if is_print:
+        print(f"Model : {model_path}, "
+              f"AP_IoU05_95_area_all_maxDets100: {AP_IoU05_95_area_all_maxDets100:.5f}, AP_IoU05_area_all_maxDets100: {AP_IoU05_area_all_maxDets100:.5f}, "
+              f"AP_IoU075_area_all_maxDets100: {AP_IoU075_area_all_maxDets100:.5f}, AP_IoU05_95_area_small_maxDets100: {AP_IoU05_95_area_small_maxDets100:.5f}, "
+              f"AP_IoU05_95_area_medium_maxDets100: {AP_IoU05_95_area_medium_maxDets100:.5f}, AP_IoU05_95_area_large_maxDets100: {AP_IoU05_95_area_large_maxDets100:.5f},"
+              f"AR_IoU05_95_area_all_maxDets1: {AR_IoU05_95_area_all_maxDets1:.5f}, AR_IoU05_95_area_all_maxDets10: {AR_IoU05_95_area_all_maxDets10:.5f},"
+              f"AR_IoU05_95_area_all_maxDets100: {AR_IoU05_95_area_all_maxDets100:.5f}, AR_IoU05_95_area_small_maxDets100: {AR_IoU05_95_area_small_maxDets100:.5f},"
+              f"AR_IoU05_95_area_medium_maxDets100: {AR_IoU05_95_area_medium_maxDets100:.5f}, AR_IoU05_95_area_large_maxDets100: {AR_IoU05_95_area_large_maxDets100:.5f}")
+
+    result = {"AP_IoU05_95_area_all_maxDets100": AP_IoU05_95_area_all_maxDets100,
+              "AP_IoU05_area_all_maxDets100": AP_IoU05_area_all_maxDets100,
+              "AP_IoU075_area_all_maxDets100": AP_IoU075_area_all_maxDets100,
+              "AP_IoU05_95_area_small_maxDets100": AP_IoU05_95_area_small_maxDets100,
+              "AP_IoU05_95_area_medium_maxDets100": AP_IoU05_95_area_medium_maxDets100,
+              "AP_IoU05_95_area_large_maxDets100": AP_IoU05_95_area_large_maxDets100,
+              "AR_IoU05_95_area_all_maxDets1": AR_IoU05_95_area_all_maxDets1,
+              "AR_IoU05_95_area_all_maxDets10": AR_IoU05_95_area_all_maxDets10,
+              "AR_IoU05_95_area_all_maxDets100": AR_IoU05_95_area_all_maxDets100,
+              "AR_IoU05_95_area_small_maxDets100": AR_IoU05_95_area_small_maxDets100,
+              "AR_IoU05_95_area_medium_maxDets100": AR_IoU05_95_area_medium_maxDets100,
+              "AR_IoU05_95_area_large_maxDets100": AR_IoU05_95_area_large_maxDets100}
+
+    return result
+
+
 def get_model_instance_segmentation(num_classes):
     model = maskrcnn_resnet50_fpn(pretrained=False)
     in_features = model.roi_heads.box_predictor.cls_score.in_features
@@ -50,82 +81,78 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    # model = get_model_instance_segmentation(num_classes=num_classes).to(device)
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
         print("%s Model Exist! Load Model.." % model_path)
         checkpoint = torch.load(model_path)
-        model.load_state_dict(checkpoint["state_dict"])
-        model.eval()
+        # model.load_state_dict(checkpoint["state_dict"])
+        # model.eval()
 
-        valid_loss = 0
+        print('----------------------COCOeval Metric start--------------------------')
         inference_results = []
-        image_ids = []
-        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
-            with torch.no_grad():
-                print("%d / %d" % (i, len(valid_data_loader)))
-                imgs = list(img.to(device) for img in images_batch)
-                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
+        # for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
+        #     with torch.no_grad():
+        #         imgs = list(img.to(device) for img in images_batch)
+        #         annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
+        #
+        #         inference = model(imgs)
+        #
+        #         for batch_idx in range(len(images_batch)):
+        #             boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
+        #
+        #             if len(boxes) > 0:
+        #                 boxes[:, 2] -= boxes[:, 0]
+        #                 boxes[:, 3] -= boxes[:, 1]
+        #                 boxes = boxes.tolist()
+        #                 # boxes = [list(map(round, box)) for box in boxes]
+        #
+        #                 for box_id in range(len(boxes)):
+        #                     box = boxes[box_id]
+        #                     label = labels[box_id]
+        #                     score = scores[box_id]
+        #
+        #                     # if score < threshold:
+        #                     #     break
+        #
+        #                     image_result = {
+        #                         'image_id': annotations[batch_idx]["img_id"].cpu().item(),
+        #                         'bbox': box,
+        #                         'category_id': label.item(),
+        #                         'score': score.item(),
+        #                     }
+        #
+        #                     inference_results.append(image_result)
 
-                inference = model(imgs)
-                # print(inference)
+        # json.dump(inference_results, open("instances_val2017_bbox_" + str(cross_valid_fold) + ".json", 'w'), indent=4)
 
-                for batch_idx in range(len(images_batch)):
-                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
+        # coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
+        # coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_" + str(cross_valid_fold) + ".json")
+        #
+        # coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
+        # coco_eval.evaluate()
+        # coco_eval.accumulate()
+        # coco_eval.summarize()
+        #
+        # result = get_coco_stats(coco_eval.stats, False)
 
-                    if len(boxes) > 0:
-                        boxes[:, 2] -= boxes[:, 0]
-                        boxes[:, 3] -= boxes[:, 1]
-                        boxes = boxes.tolist()
-                        boxes = [list(map(round, box)) for box in boxes]
+        print('----------------------COCOeval Metric end--------------------------')
 
-                        for box_id in range(len(boxes)):
-                            box = boxes[box_id]
-                            label = labels[box_id]
-                            score = scores[box_id]
+        # return model, cross_valid_fold, result
+        return None, cross_valid_fold, None
 
-                            # if score < threshold:
-                            #     break
-
-                            image_result = {
-                                'image_id': int(annotations[batch_idx]["img_id"].cpu().item()),
-                                'bbox': box,
-                                'category_id': int(label.item()),
-                                # 'score': score.item(),
-                            }
-
-                            inference_results.append(image_result)
-
-        json.dump(inference_results, open("instances_val2017_bbox_results.json", 'w'), indent=4)
-        
-        coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
-        coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_results.json")
-        # coco_pred = coco_gt.loadRes(resFile="/YDE/COCO/annotations/instances_val2017.json")
-        print(coco_gt)
-        coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
-        coco_eval.evaluate()
-        coco_eval.accumulate()
-        coco_eval.summarize()
-
-        # losses = sum(loss for loss in loss_dict.values())
-
-        # valid_loss += losses
-        # print(f"Model : {model_path}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
-        # f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
-
-        result = {}
-        return model, cross_valid_fold, result
     else:  # not exist, train model
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
 
         print("%s Model not Exist! Train Model.." % model_path)
         print('----------------------train start--------------------------')
+        min_valid_loss = 999999
         for epoch in range(num_epochs):
             model.train()
-            train_loss = 0
-            valid_loss = 0
+            train_loss, train_loss_classifier, train_loss_mask, train_loss_box_reg, train_loss_objectness = 0, 0, 0, 0, 0
+            valid_loss, valid_loss_classifier, valid_loss_mask, valid_loss_box_reg, valid_loss_objectness = 0, 0, 0, 0, 0
             for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
                 optimizer.zero_grad()
 
@@ -140,15 +167,19 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
                 optimizer.step()
 
                 train_loss += losses
-                print(f"train epoch : {epoch + 1}, batch : {i + 1}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
-                      f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
+                train_loss_classifier += loss_dict['loss_classifier'].item()
+                train_loss_mask += loss_dict['loss_mask'].item()
+                train_loss_box_reg += loss_dict['loss_box_reg'].item()
+                train_loss_objectness += loss_dict['loss_objectness'].item()
 
-            torch.save({
-                'epoch': epoch,
-                'log'  : "test",
-                'optimizer': optimizer.state_dict,
-                'state_dict': model.state_dict()
-            }, model_path)
+            train_loss /= len(train_data_loader)
+            train_loss_classifier /= len(train_data_loader)
+            train_loss_mask /= len(train_data_loader)
+            train_loss_box_reg /= len(train_data_loader)
+            train_loss_objectness /= len(train_data_loader)
+
+            print(f"train epoch : {epoch + 1}, loss_classifier: {train_loss_classifier:.5f}, loss_mask: {train_loss_mask:.5f}, "
+                  f"loss_box_reg: {train_loss_box_reg:.5f}, loss_objectness: {train_loss_objectness:.5f}, Total_loss: {train_loss:.5f}")
 
             for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
                 with torch.no_grad():
@@ -156,31 +187,91 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
                     annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
                     loss_dict = model(imgs, annotations)
-                    # loss_dict = model(imgs)
 
-                    # losses = sum(loss for loss in loss_dict.values())
+                    losses = sum(loss for loss in loss_dict.values())
 
-                    # valid_loss += losses
-                    # print(f"valid epoch : {epoch + 1}, batch : {i + 1}, loss_classifier: {loss_dict['loss_classifier'].item():.5f}, loss_mask: {loss_dict['loss_mask'].item():.5f}, "
-                    #       f"loss_box_reg: {loss_dict['loss_box_reg'].item():.5f}, loss_objectness: {loss_dict['loss_objectness'].item():.5f}, Total_loss: {losses.item():.5f}")
-                    break
+                    valid_loss += losses
+                    valid_loss_classifier += loss_dict['loss_classifier'].item()
+                    valid_loss_mask += loss_dict['loss_mask'].item()
+                    valid_loss_box_reg += loss_dict['loss_box_reg'].item()
+                    valid_loss_objectness += loss_dict['loss_objectness'].item()
 
-                    # Model Save
-                    # if epoch % 5 == 0:
-                    #     torch.save(model, model_path)
-                        # torch.save({
-                        #     'epoch': epoch,
-                        #     'model_state_dict': model.state_dict()
-                        # }, model_path)
+            valid_loss /= len(valid_data_loader)
+            valid_loss_classifier /= len(valid_data_loader)
+            valid_loss_mask /= len(valid_data_loader)
+            valid_loss_box_reg /= len(valid_data_loader)
+            valid_loss_objectness /= len(valid_data_loader)
+
+            print(f"valid epoch : {epoch + 1}, loss_classifier: {valid_loss_classifier:.5f}, loss_mask: {valid_loss_mask:.5f}, "
+                f"loss_box_reg: {valid_loss_box_reg:.5f}, loss_objectness: {valid_loss_objectness:.5f}, Total_loss: {valid_loss:.5f}")
+
+            # Model Save
+            if min_valid_loss > valid_loss:
+                min_valid_loss = valid_loss
+                torch.save({
+                    'epoch': epoch,
+                    'valid_loss': min_valid_loss,
+                    'optimizer': optimizer.state_dict,
+                    'state_dict': model.state_dict()
+                }, model_path)
         print('----------------------train end--------------------------')
 
-        result = {}
+        print('----------------------COCOeval Metric start--------------------------')
+        model.eval()
+        inference_results = []
+        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
+            with torch.no_grad():
+                imgs = list(img.to(device) for img in images_batch)
+                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
+
+                inference = model(imgs)
+
+                for batch_idx in range(len(images_batch)):
+                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
+
+                    if len(boxes) > 0:
+                        boxes[:, 2] -= boxes[:, 0]
+                        boxes[:, 3] -= boxes[:, 1]
+                        boxes = boxes.tolist()
+                        # boxes = [list(map(round, box)) for box in boxes]
+
+                        for box_id in range(len(boxes)):
+                            box = boxes[box_id]
+                            label = labels[box_id]
+                            score = scores[box_id]
+
+                            # if score < threshold:
+                            #     break
+
+                            image_result = {
+                                'image_id': annotations[batch_idx]["img_id"].cpu().item(),
+                                'bbox': box,
+                                'category_id': label.item(),
+                                'score': score.item(),
+                            }
+
+                            inference_results.append(image_result)
+
+        json.dump(inference_results, open("instances_val2017_bbox_" + str(cross_valid_fold) + ".json", 'w'), indent=4)
+
+        coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
+        coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_" + str(cross_valid_fold) + ".json")
+
+        coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+
+        result = get_coco_stats(coco_eval.stats, False)
+
+        print('----------------------COCOeval Metric start--------------------------')
 
         return model, cross_valid_fold, result
 
 
 def eval_tta(augment, reporter):
     cross_valid_ratio_test, cross_valid_fold, save_path = augment['cv_ratio_test'], augment['cv_fold'], augment['save_path']
+    batch_size = augment['batch_size']
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -205,7 +296,7 @@ def eval_tta(augment, reporter):
         valid_dataset = COCODataset(root=augment["dataroot"], split='val', augmentation=augmentation)
 
         valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
-                                                        batch_size=1,
+                                                        batch_size=batch_size,
                                                         shuffle=False,
                                                         num_workers=2,
                                                         collate_fn=collate_fn)
@@ -221,12 +312,11 @@ def eval_tta(augment, reporter):
                 loss_dict = model(imgs, annotations)
 
                 losses = sum(loss for loss in loss_dict.values())
-                loss.append(losses.item())
-                break
 
+                loss.append(losses.item())
     reporter(loss=np.mean(loss), metric=0, elapsed_time=0)
 
-    return 1, np.mean(loss)
+    return np.mean(loss)
 
 
 if __name__ == "__main__":
@@ -237,7 +327,7 @@ if __name__ == "__main__":
     num_op = 2
     num_policy = 5
     num_search = 50
-    cross_valid_num = 5
+    cross_valid_num = 1
     cross_valid_ratio = 0.4
     num_epochs = 1
     num_classes = 91
@@ -296,8 +386,8 @@ if __name__ == "__main__":
     # ----- getting train results -----
     model_results = ray.get(parallel_train)
     # for r_model, r_cv, r_dict in model_results:
-    #     print('model=%s cross_valid_fold=%d top1_train=%.4f top1_valid=%.4f' % (
-    #     r_model, r_cv + 1, r_dict['top1_train'], r_dict['top1_valid']))
+    #     print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
+    #     r_model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
     #
 
     # ------ Search Augmentation Policies -----
@@ -326,6 +416,7 @@ if __name__ == "__main__":
                 'stop': {'training_iteration': num_policy},
                 'config': {
                     'dataroot': dataroot, 'save_path': k_fold_model_paths[cross_valid_fold],
+                    'batch_size': valid_batch_size,
                     'cv_ratio_test': cross_valid_ratio, 'cv_fold': cross_valid_fold,
                     'num_op': num_op, 'num_policy': num_policy
                 },

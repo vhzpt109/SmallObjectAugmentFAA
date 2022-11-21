@@ -74,6 +74,9 @@ class COCODataset(Dataset):
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
+            SmallObjectAugmentation(copy_times=1, one_object=True, p=1.0),
+            SmallObjectAugmentation(copy_times=1, p=1.0),
+            SmallObjectAugmentation(copy_times=1, all_objects=True, p=1.0),
             albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(transpose_mask=True),
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))

@@ -381,7 +381,7 @@ class SmallObjectAugmentation(DualTransform):
                     labels = np.append(labels, new_bbox[4])
 
                     temp_mask = np.zeros((mask.shape[0], mask.shape[1], 1))
-                    temp_mask[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]] = mask[bbox[1]:bbox[3], bbox[0]:bbox[2], bbox_of_small_object]
+                    temp_mask[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], 0] = mask[bbox[1]:bbox[3], bbox[0]:bbox[2], bbox_of_small_object[idx]]
                     mask = np.append(mask, temp_mask, axis=2)
 
         return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
