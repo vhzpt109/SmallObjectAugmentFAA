@@ -77,70 +77,69 @@ def get_model_instance_segmentation(num_classes):
 def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fold, num_classes, model_path):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    # print('Device:', device)
-    # print('Current cuda device:', torch.cuda.current_device())
-    # print('Count of using GPUs:', torch.cuda.device_count())
+    print('Device:', device)
+    print('Current cuda device:', torch.cuda.current_device())
+    print('Count of using GPUs:', torch.cuda.device_count())
 
-    # model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
         print("%s Model Exist! Load Model.." % model_path)
         checkpoint = torch.load(model_path)
-        # model.load_state_dict(checkpoint["state_dict"])
-        # model.eval()
+        model.load_state_dict(checkpoint["state_dict"])
+        model.eval()
 
         print('----------------------COCOeval Metric start--------------------------')
         inference_results = []
-        # for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
-        #     with torch.no_grad():
-        #         imgs = list(img.to(device) for img in images_batch)
-        #         annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
-        #
-        #         inference = model(imgs)
-        #
-        #         for batch_idx in range(len(images_batch)):
-        #             boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
-        #
-        #             if len(boxes) > 0:
-        #                 boxes[:, 2] -= boxes[:, 0]
-        #                 boxes[:, 3] -= boxes[:, 1]
-        #                 boxes = boxes.tolist()
-        #                 # boxes = [list(map(round, box)) for box in boxes]
-        #
-        #                 for box_id in range(len(boxes)):
-        #                     box = boxes[box_id]
-        #                     label = labels[box_id]
-        #                     score = scores[box_id]
-        #
-        #                     # if score < threshold:
-        #                     #     break
-        #
-        #                     image_result = {
-        #                         'image_id': annotations[batch_idx]["img_id"].cpu().item(),
-        #                         'bbox': box,
-        #                         'category_id': label.item(),
-        #                         'score': score.item(),
-        #                     }
-        #
-        #                     inference_results.append(image_result)
+        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
+            with torch.no_grad():
+                imgs = list(img.to(device) for img in images_batch)
+                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
-        # json.dump(inference_results, open("instances_val2017_bbox_" + str(cross_valid_fold) + ".json", 'w'), indent=4)
+                inference = model(imgs)
 
-        # coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
-        # coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_" + str(cross_valid_fold) + ".json")
-        #
-        # coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
-        # coco_eval.evaluate()
-        # coco_eval.accumulate()
-        # coco_eval.summarize()
-        #
-        # result = get_coco_stats(coco_eval.stats, False)
+                for batch_idx in range(len(images_batch)):
+                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
+
+                    if len(boxes) > 0:
+                        boxes[:, 2] -= boxes[:, 0]
+                        boxes[:, 3] -= boxes[:, 1]
+                        boxes = boxes.tolist()
+                        # boxes = [list(map(round, box)) for box in boxes]
+
+                        for box_id in range(len(boxes)):
+                            box = boxes[box_id]
+                            label = labels[box_id]
+                            score = scores[box_id]
+
+                            # if score < threshold:
+                            #     break
+
+                            image_result = {
+                                'image_id': annotations[batch_idx]["img_id"].cpu().item(),
+                                'bbox': box,
+                                'category_id': label.item(),
+                                'score': score.item(),
+                            }
+
+                            inference_results.append(image_result)
+
+        json.dump(inference_results, open("instances_val2017_bbox_" + str(cross_valid_fold) + ".json", 'w'), indent=4)
+
+        coco_gt = COCO(annotation_file="/YDE/COCO/annotations/instances_val2017.json")
+        coco_pred = coco_gt.loadRes(resFile="instances_val2017_bbox_" + str(cross_valid_fold) + ".json")
+
+        coco_eval = COCOeval(cocoGt=coco_gt, cocoDt=coco_pred, iouType="bbox")
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+
+        result = get_coco_stats(coco_eval.stats, False)
 
         print('----------------------COCOeval Metric end--------------------------')
 
-        # return model, cross_valid_fold, result
-        return None, cross_valid_fold, None
+        return model, cross_valid_fold, result
 
     else:  # not exist, train model
         params = [p for p in model.parameters() if p.requires_grad]
@@ -327,24 +326,24 @@ if __name__ == "__main__":
     num_op = 2
     num_policy = 5
     num_search = 50
-    cross_valid_num = 1
+    cross_valid_num = 5
     cross_valid_ratio = 0.4
-    num_epochs = 1
+    num_epochs = 20
     num_classes = 91
-    train_batch_size = 4
+    train_batch_size = 8
     valid_batch_size = 4
 
     # init ray
     ray.init(num_gpus=2, webui_host='127.0.0.1')
     print(ray.cluster_resources())
 
-    # train_dataset = COCODataset(root=dataroot, split='train')
+    train_dataset = COCODataset(root=dataroot, split='train')
     valid_dataset = COCODataset(root=dataroot, split='val')
 
-    train_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
+    train_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                                     batch_size=train_batch_size,
-                                                    shuffle=True,
-                                                    num_workers=2,
+                                                    shuffle=False,
+                                                    num_workers=4,
                                                     collate_fn=collate_fn)
 
     valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,

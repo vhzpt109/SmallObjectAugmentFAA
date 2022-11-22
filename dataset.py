@@ -48,6 +48,9 @@ class COCODataset(Dataset):
         self.coco_ids_to_class_names = {category['id']: category['name'] for category in self.coco.loadCats(self.coco_ids)}  # len 80
 
     def __getitem__(self, index):
+        if index >= len(self.img_id):
+            raise StopIteration
+
         img_id = self.img_id[index]
 
         img_coco = self.coco.loadImgs(ids=img_id)[0]
@@ -63,6 +66,11 @@ class COCODataset(Dataset):
         annotations = [x for x in self.coco.loadAnns(annotation_ids) if x['image_id'] == img_id]       # anno id 에 해당하는 annotation 을 가져온다.
 
         boxes = np.array([annotation['bbox'] for annotation in annotations], dtype=np.float32)
+        try:
+            np.testing.assert_equal(np.all([boxes[:, 2] > 0, boxes[:, 3] > 0]), True)  # check error occurring bbox
+        except AssertionError:
+            del self.img_id[index]
+            return self.__getitem__(index)
         boxes[:, 2] = boxes[:, 0] + boxes[:, 2]
         boxes[:, 3] = boxes[:, 1] + boxes[:, 3]
 
@@ -74,12 +82,9 @@ class COCODataset(Dataset):
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            SmallObjectAugmentation(copy_times=1, one_object=True, p=1.0),
-            SmallObjectAugmentation(copy_times=1, p=1.0),
-            SmallObjectAugmentation(copy_times=1, all_objects=True, p=1.0),
             albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(transpose_mask=True),
-        ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
+        ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"], min_area=1))
 
         if self.augmentation is not None:
             for augmentation in self.augmentation:
