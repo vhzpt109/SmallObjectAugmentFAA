@@ -5,13 +5,9 @@ import numpy as np
 import albumentations
 import albumentations.pytorch
 import glob
-import torchvision.transforms as transforms
 
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-from PIL import Image
-from augmentations import SmallObjectAugmentation
 
 
 def collate_fn(batch):
@@ -84,7 +80,7 @@ class COCODataset(Dataset):
         self.albumentation_transforms = albumentations.Compose([
             albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
             albumentations.pytorch.ToTensorV2(transpose_mask=True),
-        ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"], min_area=1))
+        ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
         if self.augmentation is not None:
             for augmentation in self.augmentation:

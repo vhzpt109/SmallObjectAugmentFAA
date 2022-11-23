@@ -4,8 +4,6 @@ import torch
 import ray
 import time
 import numpy as np
-import torch.distributed as dist
-import albumentations
 import random
 import json
 
@@ -22,11 +20,12 @@ from torchvision.models.detection import maskrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
-from dataset import COCODataset, collate_fn
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 # Set cuda
+from datautils import get_dataloaders
+
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
@@ -73,8 +72,10 @@ def get_model_instance_segmentation(num_classes):
     return model
 
 
-@ray.remote(num_gpus=2, max_calls=1)
-def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fold, num_classes, model_path):
+@ray.remote(num_gpus=2, max_calls=2)
+def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
+    train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, split=cross_valid_ratio, split_idx=cross_valid_fold)
+
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     print('Device:', device)
@@ -269,7 +270,7 @@ def train_model(train_data_loader, valid_data_loader, num_epochs, cross_valid_fo
 
 
 def eval_tta(augment, reporter):
-    cross_valid_ratio_test, cross_valid_fold, save_path = augment['cv_ratio_test'], augment['cv_fold'], augment['save_path']
+    cross_valid_ratio, cross_valid_fold, save_path = augment['cv_ratio_test'], augment['cv_fold'], augment['save_path']
     batch_size = augment['batch_size']
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -292,13 +293,8 @@ def eval_tta(augment, reporter):
         for name, pr, level in policy:
             appendAlbumentation(augmentation, name, pr, level)
 
-        valid_dataset = COCODataset(root=augment["dataroot"], split='val', augmentation=augmentation)
+        _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train',batch_size=batch_size, split=cross_valid_ratio, split_idx=cross_valid_fold, augmentation=augmentation)
 
-        valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
-                                                        batch_size=batch_size,
-                                                        shuffle=False,
-                                                        num_workers=2,
-                                                        collate_fn=collate_fn)
         valid_loaders.append(iter(valid_data_loader))
 
     loss = []
@@ -326,37 +322,20 @@ if __name__ == "__main__":
     num_op = 2
     num_policy = 5
     num_search = 50
-    cross_valid_num = 5
+    cross_valid_num = 4
     cross_valid_ratio = 0.4
     num_epochs = 20
     num_classes = 91
-    train_batch_size = 8
-    valid_batch_size = 4
+    batch_size = 8
 
     # init ray
     ray.init(num_gpus=2, webui_host='127.0.0.1')
     print(ray.cluster_resources())
 
-    train_dataset = COCODataset(root=dataroot, split='train')
-    valid_dataset = COCODataset(root=dataroot, split='val')
-
-    train_data_loader = torch.utils.data.DataLoader(dataset=train_dataset,
-                                                    batch_size=train_batch_size,
-                                                    shuffle=False,
-                                                    num_workers=4,
-                                                    collate_fn=collate_fn)
-
-    valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
-                                                    batch_size=valid_batch_size,
-                                                    shuffle=False,
-                                                    num_workers=2,
-                                                    collate_fn=collate_fn)
-
     num_result_per_cv = 10
     k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i) for i in range(cross_valid_num)]
 
-    parallel_train = [train_model.remote(train_data_loader=train_data_loader, valid_data_loader=valid_data_loader, num_epochs=num_epochs, cross_valid_fold=i, num_classes=num_classes, model_path=k_fold_model_paths[i])
-                      for i in range(cross_valid_num)]
+    parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i, num_classes=num_classes) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs))
     is_done = False
@@ -415,7 +394,7 @@ if __name__ == "__main__":
                 'stop': {'training_iteration': num_policy},
                 'config': {
                     'dataroot': dataroot, 'save_path': k_fold_model_paths[cross_valid_fold],
-                    'batch_size': valid_batch_size,
+                    'batch_size': batch_size,
                     'cv_ratio_test': cross_valid_ratio, 'cv_fold': cross_valid_fold,
                     'num_op': num_op, 'num_policy': num_policy
                 },
