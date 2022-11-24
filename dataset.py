@@ -5,6 +5,7 @@ import numpy as np
 import albumentations
 import albumentations.pytorch
 import glob
+import time
 
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
@@ -131,25 +132,6 @@ class COCODataset(Dataset):
         }
 
         return image, result_annotation
-
-    def make_det_annos(self, anno):
-        annotations = np.zeros((0, 5))
-        for idx, anno_dict in enumerate(anno):
-
-            if anno_dict['bbox'][2] < 1 or anno_dict['bbox'][3] < 1:
-                continue
-
-            annotation = np.zeros((1, 5))
-            annotation[0, :4] = anno_dict['bbox']
-
-            annotation[0, 4] = self.coco_ids_to_continuous_ids[anno_dict['category_id']]  # 원래 category_id가 18이면 들어가는 값은 16
-            annotations = np.append(annotations, annotation, axis=0)
-
-        # transform from [x, y, w, h] to [x1, y1, x2, y2]
-        annotations[:, 2] = annotations[:, 0] + annotations[:, 2]
-        annotations[:, 3] = annotations[:, 1] + annotations[:, 3]
-
-        return annotations
 
     def __len__(self):
         return len(self.img_id)

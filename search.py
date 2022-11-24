@@ -6,7 +6,9 @@ import time
 import numpy as np
 import random
 import json
+import time
 
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from collections import OrderedDict
 from hyperopt import hp
@@ -74,7 +76,7 @@ def get_model_instance_segmentation(num_classes):
 
 @ray.remote(num_gpus=2, max_calls=2)
 def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
-    train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, split=cross_valid_ratio, split_idx=cross_valid_fold)
+    train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size, fold_idx=cross_valid_fold)
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -146,6 +148,12 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
 
+        writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
+        writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
+        writer_loss_mask = SummaryWriter(log_dir='logs/%d-fold/loss_mask' % cross_valid_fold)
+        writer_loss_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_box_reg' % cross_valid_fold)
+        writer_loss_objectness = SummaryWriter(log_dir='logs/%d-fold/loss_objectness' % cross_valid_fold)
+
         print("%s Model not Exist! Train Model.." % model_path)
         print('----------------------train start--------------------------')
         min_valid_loss = 999999
@@ -154,8 +162,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
             train_loss, train_loss_classifier, train_loss_mask, train_loss_box_reg, train_loss_objectness = 0, 0, 0, 0, 0
             valid_loss, valid_loss_classifier, valid_loss_mask, valid_loss_box_reg, valid_loss_objectness = 0, 0, 0, 0, 0
             for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
-                optimizer.zero_grad()
-
+                start = time.time()
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
@@ -163,6 +170,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
                 losses = sum(loss for loss in loss_dict.values())
 
+                optimizer.zero_grad()
                 losses.backward()
                 optimizer.step()
 
@@ -171,12 +179,20 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
                 train_loss_mask += loss_dict['loss_mask'].item()
                 train_loss_box_reg += loss_dict['loss_box_reg'].item()
                 train_loss_objectness += loss_dict['loss_objectness'].item()
+                end = time.time()
+                print(f"{cross_valid_fold}-fold, train time : {end - start:.5f} sec")
 
             train_loss /= len(train_data_loader)
             train_loss_classifier /= len(train_data_loader)
             train_loss_mask /= len(train_data_loader)
             train_loss_box_reg /= len(train_data_loader)
             train_loss_objectness /= len(train_data_loader)
+
+            writer_loss.add_scalar('loss', train_loss, epoch)
+            writer_loss_classifier.add_scalar('loss_classifier', train_loss_classifier, epoch)
+            writer_loss_mask.add_scalar('loss_mask', train_loss_mask, epoch)
+            writer_loss_box_reg.add_scalar('loss_box_reg', train_loss_box_reg, epoch)
+            writer_loss_objectness.add_scalar('loss_objectness', train_loss_objectness, epoch)
 
             print(f"train epoch : {epoch + 1}, loss_classifier: {train_loss_classifier:.5f}, loss_mask: {train_loss_mask:.5f}, "
                   f"loss_box_reg: {train_loss_box_reg:.5f}, loss_objectness: {train_loss_objectness:.5f}, Total_loss: {train_loss:.5f}")
@@ -214,6 +230,13 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
                     'optimizer': optimizer.state_dict,
                     'state_dict': model.state_dict()
                 }, model_path)
+
+        writer_loss.close()
+        writer_loss_classifier.close()
+        writer_loss_mask.close()
+        writer_loss_box_reg.close()
+        writer_loss_objectness.close()
+
         print('----------------------train end--------------------------')
 
         print('----------------------COCOeval Metric start--------------------------')
@@ -323,8 +346,8 @@ if __name__ == "__main__":
     num_policy = 5
     num_search = 50
     cross_valid_num = 4
-    cross_valid_ratio = 0.4
-    num_epochs = 20
+    cross_valid_ratio = 0.25
+    num_epochs = 50
     num_classes = 91
     batch_size = 8
 
