@@ -74,7 +74,7 @@ def get_model_instance_segmentation(num_classes):
     return model
 
 
-@ray.remote(num_gpus=2, max_calls=2)
+@ray.remote(num_cpus=8, num_gpus=1)
 def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
     train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size, fold_idx=cross_valid_fold)
 
@@ -344,7 +344,7 @@ if __name__ == "__main__":
     # until = 5
     num_op = 2
     num_policy = 5
-    num_search = 50
+    num_search = 200
     cross_valid_num = 4
     cross_valid_ratio = 0.25
     num_epochs = 50
@@ -352,7 +352,7 @@ if __name__ == "__main__":
     batch_size = 8
 
     # init ray
-    ray.init(num_gpus=2, webui_host='127.0.0.1')
+    ray.init(num_cpus=16, num_gpus=2, webui_host='127.0.0.1')
     print(ray.cluster_resources())
 
     num_result_per_cv = 10
@@ -413,7 +413,7 @@ if __name__ == "__main__":
             name: {
                 'run': name,
                 'num_samples': num_search,
-                'resources_per_trial': {'cpu': 16, 'gpu': 2},
+                'resources_per_trial': {'cpu': 8, 'gpu': 1},
                 'stop': {'training_iteration': num_policy},
                 'config': {
                     'dataroot': dataroot, 'save_path': k_fold_model_paths[cross_valid_fold],
