@@ -64,12 +64,12 @@ def get_coco_stats(coco_stats, is_print=False):
 
 
 def get_model_instance_segmentation(num_classes):
-    model = maskrcnn_resnet50_fpn(pretrained=False)
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer = 256
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
+    model = maskrcnn_resnet50_fpn(pretrained=True)
+    # in_features = model.roi_heads.box_predictor.cls_score.in_features
+    # model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    # in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    # hidden_layer = 256
+    # model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
 
     return model
 
@@ -80,9 +80,9 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    print('Device:', device)
-    print('Current cuda device:', torch.cuda.current_device())
-    print('Count of using GPUs:', torch.cuda.device_count())
+    # print('Device:', device)
+    # print('Current cuda device:', torch.cuda.current_device())
+    # print('Count of using GPUs:', torch.cuda.device_count())
 
     model = get_model_instance_segmentation(num_classes=num_classes).to(device)
 
@@ -157,12 +157,11 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         print("%s Model not Exist! Train Model.." % model_path)
         print('----------------------train start--------------------------')
         min_valid_loss = 999999
-        for epoch in range(num_epochs):
+        for epoch in range(1, num_epochs + 1):
             model.train()
             train_loss, train_loss_classifier, train_loss_mask, train_loss_box_reg, train_loss_objectness = 0, 0, 0, 0, 0
             valid_loss, valid_loss_classifier, valid_loss_mask, valid_loss_box_reg, valid_loss_objectness = 0, 0, 0, 0, 0
             for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
-                start = time.time()
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
@@ -179,8 +178,6 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
                 train_loss_mask += loss_dict['loss_mask'].item()
                 train_loss_box_reg += loss_dict['loss_box_reg'].item()
                 train_loss_objectness += loss_dict['loss_objectness'].item()
-                end = time.time()
-                print(f"{cross_valid_fold}-fold, train time : {end - start:.5f} sec")
 
             train_loss /= len(train_data_loader)
             train_loss_classifier /= len(train_data_loader)
@@ -194,7 +191,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
             writer_loss_box_reg.add_scalar('loss_box_reg', train_loss_box_reg, epoch)
             writer_loss_objectness.add_scalar('loss_objectness', train_loss_objectness, epoch)
 
-            print(f"train epoch : {epoch + 1}, loss_classifier: {train_loss_classifier:.5f}, loss_mask: {train_loss_mask:.5f}, "
+            print(f"train epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {train_loss_classifier:.5f}, loss_mask: {train_loss_mask:.5f}, "
                   f"loss_box_reg: {train_loss_box_reg:.5f}, loss_objectness: {train_loss_objectness:.5f}, Total_loss: {train_loss:.5f}")
 
             for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
@@ -218,7 +215,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
             valid_loss_box_reg /= len(valid_data_loader)
             valid_loss_objectness /= len(valid_data_loader)
 
-            print(f"valid epoch : {epoch + 1}, loss_classifier: {valid_loss_classifier:.5f}, loss_mask: {valid_loss_mask:.5f}, "
+            print(f"valid epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {valid_loss_classifier:.5f}, loss_mask: {valid_loss_mask:.5f}, "
                 f"loss_box_reg: {valid_loss_box_reg:.5f}, loss_objectness: {valid_loss_objectness:.5f}, Total_loss: {valid_loss:.5f}")
 
             # Model Save
@@ -287,7 +284,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
         result = get_coco_stats(coco_eval.stats, False)
 
-        print('----------------------COCOeval Metric start--------------------------')
+        print('----------------------COCOeval Metric end--------------------------')
 
         return model, cross_valid_fold, result
 
@@ -345,9 +342,9 @@ if __name__ == "__main__":
     num_op = 2
     num_policy = 5
     num_search = 200
-    cross_valid_num = 4
+    cross_valid_num = 2
     cross_valid_ratio = 0.25
-    num_epochs = 50
+    num_epochs = 200
     num_classes = 91
     batch_size = 8
 
@@ -356,9 +353,9 @@ if __name__ == "__main__":
     print(ray.cluster_resources())
 
     num_result_per_cv = 10
-    k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i) for i in range(cross_valid_num)]
+    k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i + 1) for i in range(cross_valid_num)]
 
-    parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i, num_classes=num_classes) for i in range(cross_valid_num)]
+    parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs))
     is_done = False
@@ -386,10 +383,10 @@ if __name__ == "__main__":
 
     # ----- getting train results -----
     model_results = ray.get(parallel_train)
-    # for r_model, r_cv, r_dict in model_results:
-    #     print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
-    #     r_model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
-    #
+    for r_model, r_cv, r_dict in model_results:
+        print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
+        model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
+
 
     # ------ Search Augmentation Policies -----
     ops = smallobjectaugmentation_list()
@@ -403,7 +400,7 @@ if __name__ == "__main__":
     final_policy_set = []
     total_computation = 0
     reward_metric = 'loss'
-    for cross_valid_fold in range(cross_valid_num):
+    for cross_valid_fold in range(1, cross_valid_num + 1):
         name = "search_%s_%s_fold%d_ratio%.1f" % (dataset, model, cross_valid_fold, cross_valid_ratio)
         print(name)
         register_trainable(name, lambda augment, reporter: eval_tta(augment=augment, reporter=reporter))
@@ -439,56 +436,53 @@ if __name__ == "__main__":
             final_policy = remove_deplicates(final_policy)
             final_policy_set.extend(final_policy)
 
-    #
-    #
-    # num_experiments = 5
-    # # k_fold_default_augment_model_paths = [_get_path(C.get()['dataset'], model, 'ratio%.1f_default%d' % (cross_valid_ratio, _)) for _ in range(num_experiments)]
-    # k_fold_default_augment_model_paths = ['%s_default_augment_fold%d' % (model, i) for i in range(num_experiments)]
-    # # k_fold_optimal_augment_model_paths = [_get_path(C.get()['dataset'], model, 'ratio%.1f_augment%d' % (cross_valid_ratio, _)) for _ in range(num_experiments)]
-    # k_fold_optimal_augment_model_paths = ['%s_optimal_augment_fold%d' % (model, i) for i in range(num_experiments)]
-    # parallel_train_optimal_augment = [train_model.remote() for _ in range(num_experiments)] + [train_model.remote() for
-    #                                                                                            _ in
-    #                                                                                            range(num_experiments)]
-    #
-    # tqdm_epoch = tqdm(num_epochs)
-    # is_done = False
-    # for epoch in tqdm_epoch:
-    #     while True:
-    #         epochs = OrderedDict()
-    #         for exp_idx in range(num_experiments):
-    #             try:
-    #                 if os.path.exists(k_fold_default_augment_model_paths[exp_idx]):
-    #                     latest_ckpt = torch.load(k_fold_default_augment_model_paths[exp_idx])
-    #                     epochs['default_exp%d' % (exp_idx + 1)] = latest_ckpt['epoch']
-    #             except Exception as e:
-    #                 print(e)
-    #                 pass
-    #             try:
-    #                 if os.path.exists(k_fold_optimal_augment_model_paths[exp_idx]):
-    #                     latest_ckpt = torch.load(k_fold_optimal_augment_model_paths[exp_idx])
-    #                     epochs['augment_exp%d' % (exp_idx + 1)] = latest_ckpt['epoch']
-    #             except Exception as e:
-    #                 print(e)
-    #                 pass
-    #
-    #         tqdm_epoch.set_postfix(epochs)
-    #         if len(epochs) == num_experiments * 2 and min(epochs.values()) >= num_epochs:
-    #             is_done = True
-    #         if len(epochs) == num_experiments * 2 and min(epochs.values()) >= epoch:
-    #             break
-    #         time.sleep(10)
-    #     if is_done:
-    #         break
-    #
-    # # getting train results
-    # final_results = ray.get(parallel_train_optimal_augment)
-    #
-    # # getting final optimal performance
-    # for train_mode in ['default', 'augment']:
-    #     avg = 0.
-    #     for _ in range(num_experiments):
-    #         r_model, r_cv, r_dict = final_results.pop(0)
-    #         print('[%s] top1_train=%.4f top1_test=%.4f' % (train_mode, r_dict['top1_train'], r_dict['top1_test']))
-    #         avg += r_dict['top1_test']
-    #     avg /= num_experiments
-    #     print('[%s] top1_test average=%.4f (#experiments=%d)' % (train_mode, avg, num_experiments))
+
+
+    k_fold_default_augment_model_paths = ['%s_default_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
+    k_fold_optimal_augment_model_paths = ['%s_optimal_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
+    parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes) for i in range(cross_valid_num)] + \
+                                     [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes) for i in range(cross_valid_num)]
+
+    tqdm_epoch = tqdm(num_epochs)
+    is_done = False
+    for epoch in tqdm_epoch:
+        while True:
+            epochs = OrderedDict()
+            for exp_idx in range(cross_valid_num):
+                try:
+                    if os.path.exists(k_fold_default_augment_model_paths[exp_idx]):
+                        latest_ckpt = torch.load(k_fold_default_augment_model_paths[exp_idx])
+                        epochs['default_exp%d' % (exp_idx + 1)] = latest_ckpt['epoch']
+                except Exception as e:
+                    print(e)
+                    pass
+                try:
+                    if os.path.exists(k_fold_optimal_augment_model_paths[exp_idx]):
+                        latest_ckpt = torch.load(k_fold_optimal_augment_model_paths[exp_idx])
+                        epochs['augment_exp%d' % (exp_idx + 1)] = latest_ckpt['epoch']
+                except Exception as e:
+                    print(e)
+                    pass
+
+            tqdm_epoch.set_postfix(epochs)
+            if len(epochs) == cross_valid_num * 2 and min(epochs.values()) >= num_epochs:
+                is_done = True
+            if len(epochs) == cross_valid_num * 2 and min(epochs.values()) >= epoch:
+                break
+            time.sleep(10)
+        if is_done:
+            break
+
+    # getting train results
+    final_results = ray.get(parallel_train_optimal_augment)
+
+    # getting final optimal performance
+    for train_mode in ['default', 'augment']:
+        avg = 0.
+        for _ in range(cross_valid_num):
+            _, r_cv, r_dict = final_results.pop(0)
+            print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
+                    model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
+            avg += r_dict['AP_IoU05_95_area_all_maxDets100']
+        avg /= cross_valid_num
+        print('[%s] AP average=%.4f (#cross_valid_num=%d)' % (train_mode, avg, cross_valid_num))

@@ -7,6 +7,7 @@ import albumentations.pytorch
 import glob
 import time
 
+from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
 
@@ -37,7 +38,6 @@ class COCODataset(Dataset):
         self.coco = COCO(os.path.join(self.root, 'annotations', 'instances_' + self.set_name + '.json'))
 
         self.img_id = list(self.coco.imgToAnns.keys())
-        # self.ids = self.coco.getImgIds()
 
         self.coco_ids = sorted(self.coco.getCatIds())  # list of coco labels [1, ...11, 13, ... 90]  # 0 ~ 79 to 1 ~ 90
         self.coco_ids_to_continuous_ids = {coco_id: i for i, coco_id in enumerate(self.coco_ids)}  # 1 ~ 90 to 0 ~ 79
@@ -55,9 +55,8 @@ class COCODataset(Dataset):
         file_path = os.path.join(self.root, 'images', self.set_name, file_name)
 
         # eg. '/YDE/COCO/images/val2017/000000289343.jpg'
-        # image = Image.open(file_path).convert('RGB')
-        image = cv2.imread(file_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = np.array(Image.open(file_path).convert('RGB'))
+        image = image / 255.
 
         annotation_ids = self.coco.getAnnIds(imgIds=img_id)  # img id 에 해당하는 anno id 를 가져온다.
         annotations = [x for x in self.coco.loadAnns(annotation_ids) if x['image_id'] == img_id]       # anno id 에 해당하는 annotation 을 가져온다.
@@ -73,14 +72,12 @@ class COCODataset(Dataset):
 
         labels = np.array([annotation['category_id'] for annotation in annotations], dtype=np.int32)
         masks = np.array([self.coco.annToMask(annotation) for annotation in annotations], dtype=np.uint8)
-        masks = np.transpose(masks, (1, 2, 0))
 
         areas = np.array([annotation['area'] for annotation in annotations], dtype=np.float32)
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            albumentations.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-            albumentations.pytorch.ToTensorV2(transpose_mask=True),
+            albumentations.pytorch.ToTensorV2(transpose_mask=True)
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
         if self.augmentation is not None:
