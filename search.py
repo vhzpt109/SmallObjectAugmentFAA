@@ -145,6 +145,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         result = get_coco_stats(coco_eval.stats, False)
 
         print('----------------------COCOeval Metric end--------------------------')
+        del valid_data_loader
 
         return model, cross_valid_fold, result
 
@@ -292,6 +293,8 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         result = get_coco_stats(coco_eval.stats, False)
 
         print('----------------------COCOeval Metric end--------------------------')
+        del train_data_loader
+        del valid_data_loader
 
         return model, cross_valid_fold, result
 
@@ -319,15 +322,15 @@ def eval_tta(augment, reporter):
         policy = random.choice(polices)
         for name, pr, level in policy:
             appendAlbumentation(augmentation, name, pr, level)
-
         _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
-        valid_loaders.append(iter(valid_data_loader))
+        valid_loaders.append(valid_data_loader)
 
     loss = []
     for valid_loader in valid_loaders:
         for i, (images_batch, annotations_batch) in enumerate(valid_loader):
             with torch.no_grad():
+                print("a")
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
@@ -336,6 +339,7 @@ def eval_tta(augment, reporter):
                 losses = sum(loss for loss in loss_dict.values())
 
                 loss.append(losses.item())
+                print("b")
     reporter(loss=np.mean(loss), metric=0, elapsed_time=0)
 
     return np.mean(loss)
@@ -395,6 +399,7 @@ if __name__ == "__main__":
     logger.info('getting results...')
     model_results = ray.get(parallel_train)
     for r_model, r_cv, r_dict in model_results:
+        del r_model
         logger.info('model=%s cv=%d AP=%.4f APSmall=%.4f' % (model, r_cv, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
 
     logger.info('----- Search Augmentation Policies -----')
@@ -422,7 +427,7 @@ if __name__ == "__main__":
                 'resources_per_trial': {'cpu': 8, 'gpu': 1},
                 'stop': {'training_iteration': num_policy},
                 'config': {
-                    'dataroot': dataroot, 'save_path': k_fold_model_paths[cross_valid_fold],
+                    'dataroot': dataroot, 'save_path': k_fold_model_paths[cross_valid_fold - 1],
                     'batch_size': batch_size,
                     'cv_ratio_test': cross_valid_ratio, 'cv_fold': cross_valid_fold,
                     'num_op': num_op, 'num_policy': num_policy

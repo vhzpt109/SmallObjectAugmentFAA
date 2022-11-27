@@ -56,7 +56,6 @@ class COCODataset(Dataset):
 
         # eg. '/YDE/COCO/images/val2017/000000289343.jpg'
         image = np.array(Image.open(file_path).convert('RGB'))
-        image = image / 255.
 
         annotation_ids = self.coco.getAnnIds(imgIds=img_id)  # img id 에 해당하는 anno id 를 가져온다.
         annotations = [x for x in self.coco.loadAnns(annotation_ids) if x['image_id'] == img_id]       # anno id 에 해당하는 annotation 을 가져온다.
@@ -77,7 +76,7 @@ class COCODataset(Dataset):
         iscrowd = np.array([annotation['iscrowd'] for annotation in annotations], dtype=np.uint8)
 
         self.albumentation_transforms = albumentations.Compose([
-            albumentations.pytorch.ToTensorV2(transpose_mask=True)
+            albumentations.pytorch.ToTensorV2()
         ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
 
         if self.augmentation is not None:
@@ -119,7 +118,7 @@ class COCODataset(Dataset):
                 cv_mask = cv2.bitwise_or(cv_mask, cv_masks[:, :, i] * 255)
             cv2.imwrite("visualization/" + file_name[:-4] + "_masks.jpg", cv_mask)
 
-        image = torch.as_tensor(image, dtype=torch.float32)
+        image = torch.as_tensor(image / 255., dtype=torch.float32)
         result_annotation = {
             'boxes': torch.as_tensor(boxes, dtype=torch.float32),
             'masks': torch.as_tensor(masks, dtype=torch.uint8),

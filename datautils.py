@@ -22,7 +22,7 @@ def get_dataloaders(dataroot, type='train', batch_size=8, fold_idx=0, augmentati
     return train_data_loader, valid_data_loader
 
 
-def get_valid_dataloaders(dataroot, type='valid', batch_size=8):
+def get_valid_dataloaders(dataroot, type='val', batch_size=8):
     valid_dataset = COCODataset(root=dataroot, split=type)
 
     valid_data_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=collate_fn)

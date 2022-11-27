@@ -243,13 +243,13 @@ def appendAlbumentation(augmentation_list, name, pr, level):
         augmentation_list.append(albumentations.Solarize(p=pr))
     elif name == "Posterize":
         augmentation_list.append(albumentations.Posterize(p=pr))
-    elif name == "Contrast":
+    elif name == "RandomContrast":
         augmentation_list.append(albumentations.RandomContrast(p=pr))
-    elif name == "Color":
+    elif name == "ColorJitter":
         augmentation_list.append(albumentations.ColorJitter(p=pr))
-    elif name == "Brightness":
+    elif name == "RandomBrightness":
         augmentation_list.append(albumentations.RandomBrightness(p=pr))
-    elif name == "Sharpness":
+    elif name == "Sharpen":
         augmentation_list.append(albumentations.Sharpen(p=pr))
     elif name == "SmallObjectAugment1":
         augmentation_list.append(SmallObjectAugmentation(copy_times=1, one_object=True, p=pr))
@@ -261,44 +261,6 @@ def appendAlbumentation(augmentation_list, name, pr, level):
 
 def range_scale(level, minval, maxval):
     return level * (maxval - minval) + minval
-
-
-def appendTorchvision2Albumentation(augmentation_list, name, pr, level):
-    if name == "ShearX":
-        augmentation_list.append(albumentations.Affine(shear=-5, p=pr))
-    elif name == "ShearY":
-        augmentation_list.append(albumentations.Affine(shear=5, p=pr))
-    elif name == "TranslateX":
-        augmentation_list.append(albumentations.Affine(translate_px=5, p=pr))
-    elif name == "TranslateY":
-        augmentation_list.append(albumentations.Affine(translate_px=5, p=pr))
-    elif name == "Rotate":
-        augmentation_list.append(albumentations.Affine(rotate=10, p=pr))
-    elif name == "Invert":
-        augmentation_list.append(albumentations.InvertImg(p=pr))
-    elif name == "Equalize":
-        augmentation_list.append(albumentations.Equalize(p=pr))
-    elif name == "Solarize":
-        augmentation_list.append(albumentations.Solarize(p=pr))
-    elif name == "Posterize":
-        augmentation_list.append(albumentations.Posterize(p=pr))
-    elif name == "Contrast":
-        augmentation_list.append(albumentations.RandomContrast(p=pr))
-    elif name == "Color":
-        augmentation_list.append(albumentations.ColorJitter(p=pr))
-    elif name == "Brightness":
-        augmentation_list.append(albumentations.RandomBrightness(p=pr))
-    elif name == "Sharpness":
-        augmentation_list.append(albumentations.Sharpen(p=pr))
-    elif name == "Cutout":
-        # augmentation_list.append(albumentations.CoarseDropout(max_holes=1, p=pr))
-        pass
-    elif name == "SmallObjectAugment1":
-        augment_list.append(SmallObjectAugmentation(copy_times=1, one_object=True, p=pr))
-    elif name == "SmallObjectAugment2":
-        augment_list.append(SmallObjectAugmentation(copy_times=1, p=pr))
-    elif name == "SmallObjectAugment3":
-        augment_list.append(SmallObjectAugmentation(copy_times=1, all_objects=True, p=pr))
 
 
 class SmallObjectAugmentation(DualTransform):
@@ -380,9 +342,9 @@ class SmallObjectAugmentation(DualTransform):
 
                     labels = np.append(labels, new_bbox[4])
 
-                    temp_mask = np.zeros((mask.shape[0], mask.shape[1], 1))
-                    temp_mask[new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2], 0] = mask[bbox[1]:bbox[3], bbox[0]:bbox[2], bbox_of_small_object[idx]]
-                    mask = np.append(mask, temp_mask, axis=2)
+                    temp_mask = np.zeros((1, mask.shape[1], mask.shape[2]))
+                    temp_mask[0, new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]] = mask[bbox_of_small_object[idx], bbox[1]:bbox[3], bbox[0]:bbox[2]]
+                    mask = np.append(mask, temp_mask, axis=0)
 
         return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
 
