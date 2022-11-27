@@ -119,6 +119,7 @@ class COCODataset(Dataset):
                 cv_mask = cv2.bitwise_or(cv_mask, cv_masks[:, :, i] * 255)
             cv2.imwrite("visualization/" + file_name[:-4] + "_masks.jpg", cv_mask)
 
+        image = torch.as_tensor(image, dtype=torch.float32)
         result_annotation = {
             'boxes': torch.as_tensor(boxes, dtype=torch.float32),
             'masks': torch.as_tensor(masks, dtype=torch.uint8),
