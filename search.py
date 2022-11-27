@@ -7,6 +7,7 @@ import numpy as np
 import random
 import json
 import time
+import logging
 
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -26,10 +27,13 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
 # Set cuda
-from datautils import get_dataloaders
+from datautils import get_dataloaders, get_valid_dataloaders
+from loggingutil import get_logger, add_filehandler
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+
+logger = get_logger('SmallObjectAugmentFAA')
 
 
 def get_coco_stats(coco_stats, is_print=False):
@@ -39,8 +43,7 @@ def get_coco_stats(coco_stats, is_print=False):
         = map(float, coco_stats)
 
     if is_print:
-        print(f"Model : {model_path}, "
-              f"AP_IoU05_95_area_all_maxDets100: {AP_IoU05_95_area_all_maxDets100:.5f}, AP_IoU05_area_all_maxDets100: {AP_IoU05_area_all_maxDets100:.5f}, "
+        print(f"AP_IoU05_95_area_all_maxDets100: {AP_IoU05_95_area_all_maxDets100:.5f}, AP_IoU05_area_all_maxDets100: {AP_IoU05_area_all_maxDets100:.5f}, "
               f"AP_IoU075_area_all_maxDets100: {AP_IoU075_area_all_maxDets100:.5f}, AP_IoU05_95_area_small_maxDets100: {AP_IoU05_95_area_small_maxDets100:.5f}, "
               f"AP_IoU05_95_area_medium_maxDets100: {AP_IoU05_95_area_medium_maxDets100:.5f}, AP_IoU05_95_area_large_maxDets100: {AP_IoU05_95_area_large_maxDets100:.5f},"
               f"AR_IoU05_95_area_all_maxDets1: {AR_IoU05_95_area_all_maxDets1:.5f}, AR_IoU05_95_area_all_maxDets10: {AR_IoU05_95_area_all_maxDets10:.5f},"
@@ -76,8 +79,6 @@ def get_model_instance_segmentation(num_classes):
 
 @ray.remote(num_cpus=8, num_gpus=1)
 def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
-    train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size, fold_idx=cross_valid_fold)
-
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     # print('Device:', device)
@@ -88,7 +89,10 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
+        valid_data_loader = get_valid_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size)
+
         print("%s Model Exist! Load Model.." % model_path)
+
         checkpoint = torch.load(model_path)
         model.load_state_dict(checkpoint["state_dict"])
         model.eval()
@@ -112,17 +116,17 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
                         # boxes = [list(map(round, box)) for box in boxes]
 
                         for box_id in range(len(boxes)):
+                            # if scores[box_id] < 0.5:
+                            #     continue
+
                             box = boxes[box_id]
                             label = labels[box_id]
                             score = scores[box_id]
 
-                            # if score < threshold:
-                            #     break
-
                             image_result = {
                                 'image_id': annotations[batch_idx]["img_id"].cpu().item(),
-                                'bbox': box,
                                 'category_id': label.item(),
+                                'bbox': box,
                                 'score': score.item(),
                             }
 
@@ -145,6 +149,11 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         return model, cross_valid_fold, result
 
     else:  # not exist, train model
+        print("%s Model not Exist! Train Model.." % model_path)
+        print('----------------------train start--------------------------')
+
+        train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold)
+
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
 
@@ -154,13 +163,11 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         writer_loss_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_box_reg' % cross_valid_fold)
         writer_loss_objectness = SummaryWriter(log_dir='logs/%d-fold/loss_objectness' % cross_valid_fold)
 
-        print("%s Model not Exist! Train Model.." % model_path)
-        print('----------------------train start--------------------------')
         min_valid_loss = 999999
         for epoch in range(1, num_epochs + 1):
-            model.train()
             train_loss, train_loss_classifier, train_loss_mask, train_loss_box_reg, train_loss_objectness = 0, 0, 0, 0, 0
             valid_loss, valid_loss_classifier, valid_loss_mask, valid_loss_box_reg, valid_loss_objectness = 0, 0, 0, 0, 0
+            model.train()
             for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
@@ -313,7 +320,7 @@ def eval_tta(augment, reporter):
         for name, pr, level in policy:
             appendAlbumentation(augmentation, name, pr, level)
 
-        _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train',batch_size=batch_size, split=cross_valid_ratio, split_idx=cross_valid_fold, augmentation=augmentation)
+        _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         valid_loaders.append(iter(valid_data_loader))
 
@@ -342,19 +349,23 @@ if __name__ == "__main__":
     num_op = 2
     num_policy = 5
     num_search = 200
-    cross_valid_num = 2
+    cross_valid_num = 4
     cross_valid_ratio = 0.25
     num_epochs = 200
     num_classes = 91
     batch_size = 8
 
-    # init ray
-    ray.init(num_cpus=16, num_gpus=2, webui_host='127.0.0.1')
-    print(ray.cluster_resources())
+    add_filehandler(logger, os.path.join('models', '%s_%s.log' % (dataset, model)))
+    logger.info('configuration...')
+
+    logger.info('initialize ray...')
+    ray.init(num_cpus=32, num_gpus=4, webui_host='127.0.0.1')
+    logger.info("%s" % ray.cluster_resources())
 
     num_result_per_cv = 10
     k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i + 1) for i in range(cross_valid_num)]
 
+    logger.info('----- Train without Augmentations, cv=%d ratio=%.2f -----' % (cross_valid_num, cross_valid_ratio))
     parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs))
@@ -381,14 +392,12 @@ if __name__ == "__main__":
         if is_done:
             break
 
-    # ----- getting train results -----
+    logger.info('getting results...')
     model_results = ray.get(parallel_train)
     for r_model, r_cv, r_dict in model_results:
-        print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
-        model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
+        logger.info('model=%s cv=%d AP=%.4f APSmall=%.4f' % (model, r_cv, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
 
-
-    # ------ Search Augmentation Policies -----
+    logger.info('----- Search Augmentation Policies -----')
     ops = smallobjectaugmentation_list()
     space = {}
     for i in range(num_policy):
@@ -401,7 +410,7 @@ if __name__ == "__main__":
     total_computation = 0
     reward_metric = 'loss'
     for cross_valid_fold in range(1, cross_valid_num + 1):
-        name = "search_%s_%s_fold%d_ratio%.1f" % (dataset, model, cross_valid_fold, cross_valid_ratio)
+        name = "search_%s_%s_fold%d_ratio%.2f" % (dataset, model, cross_valid_fold, cross_valid_ratio)
         print(name)
         register_trainable(name, lambda augment, reporter: eval_tta(augment=augment, reporter=reporter))
         algo = HyperOptSearch(space, max_concurrent=4 * 20, metric=reward_metric)
@@ -431,12 +440,15 @@ if __name__ == "__main__":
 
         for result in results[:num_result_per_cv]:
             final_policy = policy_decoder(result.config, num_policy, num_op)
-            print('loss=%.12f %s' % (result.last_result['loss'], final_policy))
+            logger.info('loss=%.12f %s' % (result.last_result['loss'], final_policy))
 
             final_policy = remove_deplicates(final_policy)
             final_policy_set.extend(final_policy)
 
-
+    logger.info(json.dumps(final_policy_set))
+    logger.info('final_policy=%d' % len(final_policy_set))
+    # logger.info('processed in %.4f secs, gpu hours=%.4f' % (w.pause('search'), total_computation / 3600.))
+    logger.info('----- Train with Augmentations, model=%s dataset=%s aug=%s ratio(=%.2f -----' % (model, dataset, "", cross_valid_ratio))
 
     k_fold_default_augment_model_paths = ['%s_default_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
     k_fold_optimal_augment_model_paths = ['%s_optimal_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
@@ -473,16 +485,19 @@ if __name__ == "__main__":
         if is_done:
             break
 
-    # getting train results
+    logger.info('getting results...')
     final_results = ray.get(parallel_train_optimal_augment)
 
     # getting final optimal performance
     for train_mode in ['default', 'augment']:
-        avg = 0.
+        APavg = 0.
+        APSmallavg = 0.
         for _ in range(cross_valid_num):
             _, r_cv, r_dict = final_results.pop(0)
-            print('model=%s, cross_valid_fold=%d, AP_IoU05_95_area_all_maxDets100=%.4f, AP_IoU05_95_area_small_maxDets100=%.4f' % (
-                    model, r_cv + 1, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
-            avg += r_dict['AP_IoU05_95_area_all_maxDets100']
-        avg /= cross_valid_num
-        print('[%s] AP average=%.4f (#cross_valid_num=%d)' % (train_mode, avg, cross_valid_num))
+            logger.info('[%s] AP=%.4f APSmall=%.4f' % (train_mode, r_dict['AP_IoU05_95_area_all_maxDets100'], r_dict['AP_IoU05_95_area_small_maxDets100']))
+            APavg += r_dict['AP_IoU05_95_area_all_maxDets100']
+            APSmallavg += r_dict['AP_IoU05_95_area_small_maxDets100']
+
+        APavg /= cross_valid_num
+        APSmallavg /= cross_valid_num
+        logger.info('[%s] AP average=%.4f APSmall average=%.4f (#cross_valid_num=%d)' % (train_mode, APavg, APSmallavg, cross_valid_num))

@@ -53,15 +53,13 @@ if __name__ == "__main__":
         for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
             print(i)
             with torch.no_grad():
-                imgs = list(img.to(device=device, dtype=torch.float) for img in images_batch)
+                imgs = list(img.to(device) for img in images_batch)
                 # annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
                 inference = model(imgs)
 
                 for batch_idx in range(len(images_batch)):
-                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), \
-                                                  inference[batch_idx]["scores"].cpu(), inference[batch_idx][
-                                                      "masks"].cpu()
+                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
 
                     cv_image = imgs[batch_idx].detach().cpu().numpy()
                     cv_image = np.transpose(cv_image, (1, 2, 0))
