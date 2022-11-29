@@ -25,7 +25,7 @@ from pycocotools.cocoeval import COCOeval
 from cocoutils import get_dataloaders, get_valid_dataloaders, get_coco_stats
 from loggingutil import get_logger, add_filehandler
 
-from models import get_model_instance_segmentation
+from models import MaskRCNN
 
 # Set cuda
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
@@ -42,7 +42,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = MaskRCNN(num_classes=num_classes).to(device)
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
@@ -266,7 +266,7 @@ def eval_tta(augment, reporter):
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = MaskRCNN(num_classes=num_classes).to(device)
 
     checkpoint = torch.load("/YDE/SmallObjectAugmentFAA/" + save_path)
     model.load_state_dict(checkpoint["state_dict"])

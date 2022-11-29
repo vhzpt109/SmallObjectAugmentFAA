@@ -11,6 +11,8 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from pycocotools.coco import COCO
 
+from datautil import DOTALABELS
+
 
 def collate_fn(batch):
     return tuple(zip(*batch))
@@ -18,7 +20,7 @@ def collate_fn(batch):
 
 class DOTADataset(Dataset):
     def __init__(self,
-                 root='/YDE/DOTA',
+                 root='/YDE/DOTA/split_ss_dota',
                  type='train',
                  augmentation=None,
                  save_visualization=False):
@@ -26,7 +28,7 @@ class DOTADataset(Dataset):
 
         self.root = root
 
-        assert type in ['train', 'valid', 'test']
+        assert type in ['train', 'val', 'test']
         self.type = type
 
         self.augmentation = augmentation
@@ -35,10 +37,84 @@ class DOTADataset(Dataset):
 
         self.save_visualization = save_visualization
 
-        self.img_path = glob.glob(os.path.join(self.root, self.type, 'images', '*.png'))
+        self.img_path = os.path.join(self.root, self.type, 'images')
+        self.ann_path = os.path.join(self.root, self.type, 'annfiles')
+
+        self.img_list = os.listdir(self.img_path)
+        self.img_list.sort()
 
     def __getitem__(self, index):
-        return None
+        if index >= len(self.img_list):
+            raise StopIteration
+
+        image = np.array(Image.open(self.img_path + '/' + self.img_list[index]).convert('RGB'))
+        h, w = image.shape[0], image.shape[1]
+
+        ann_file_path = self.ann_path + '/' + self.img_list[index][:-4] + ".txt"
+        ann_file = open(ann_file_path, "r")
+
+        boxes = []
+        labels = []
+        difficult = []
+
+        annotations = ann_file.readlines()
+        for annotation in annotations:
+            split_annotation = annotation.split(" ")
+            boxes.append([split_annotation[0], split_annotation[1], split_annotation[4], split_annotation[5]])
+            labels.append(DOTALABELS[split_annotation[8]])
+            difficult.append(split_annotation[9].rstrip())
+
+        boxes = np.array(boxes, dtype=np.float32)
+
+        try:
+            np.testing.assert_equal(len(boxes) > 0, True)  # check error occurring bbox
+            np.testing.assert_equal(np.all([boxes[:, :] > 0]), True)  # check error occurring bbox
+            np.testing.assert_equal(np.all([boxes[:, :] < w, boxes[:, :] < h]), True)  # check error occurring bbox
+        except AssertionError:
+            del self.img_list[index]
+            return self.__getitem__(index)
+
+        labels = np.array(labels, dtype=np.int64)
+        difficult = np.array(difficult, dtype=np.int32)
+
+        self.albumentation_transforms = albumentations.Compose([
+            albumentations.pytorch.ToTensorV2()
+        ], bbox_params=albumentations.BboxParams(format='pascal_voc', label_fields=["labels"]))
+
+        if self.augmentation is not None:
+            for augmentation in self.augmentation:
+                self.albumentation_transforms.transforms.insert(0, augmentation)
+
+        augmented = self.albumentation_transforms(image=image, bboxes=boxes, labels=labels)
+        image = augmented["image"]
+        boxes = augmented["bboxes"]
+        labels = augmented["labels"]
+
+        if self.save_visualization:
+            cv_image = image.detach().cpu().numpy()
+            cv_image = np.transpose(cv_image, (1, 2, 0))
+            cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
+            cv_image = cv_image.astype(np.uint8).copy()
+
+            values = {v: k for k, v in DOTALABELS.items()}  # // {'AA': '0', 'BB': '1', 'CC': '2'}
+
+            for i in range(len(boxes)):
+                x_min, y_min, x_max, y_max = map(int, boxes[i])
+                label = values.get(labels[i])
+
+                cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
+                cv_image = cv2.putText(cv_image, label, (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                                       (0, 0, 255), 2)
+            cv2.imwrite("visualization/" + self.img_list[index], cv_image)
+
+        image = torch.as_tensor(image / 255., dtype=torch.float32)
+        result_annotation = {
+            'boxes': torch.as_tensor(boxes, dtype=torch.float32),
+            'labels': torch.as_tensor(labels, dtype=torch.int64),
+            'difficult': torch.as_tensor(difficult, dtype=torch.int32),
+        }
+
+        return image, result_annotation
 
     def __len__(self):
         return len(self.img_path)

@@ -7,7 +7,6 @@ import numpy as np
 import random
 import json
 import time
-import logging
 
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -19,13 +18,10 @@ from ray.tune import register_trainable, run_experiments
 from augmentations import smallobjectaugmentation_list, appendAlbumentation
 from archive import remove_deplicates, policy_decoder
 
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-
-from cocoutils import get_dataloaders, get_valid_dataloaders, get_coco_stats
+from dotautils import get_dataloaders, get_valid_dataloaders
 from loggingutil import get_logger, add_filehandler
 
-from models import get_model_instance_segmentation
+from models import getFasterRCNN
 
 # Set cuda
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
@@ -42,7 +38,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = getFasterRCNN(num_classes=num_classes).to(device)
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
@@ -54,7 +50,6 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         model.load_state_dict(checkpoint["state_dict"])
         model.eval()
 
-        print('----------------------COCOeval Metric start--------------------------')
         inference_results = []
         for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
             with torch.no_grad():
@@ -63,35 +58,8 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
                 inference = model(imgs)
 
-                for batch_idx in range(len(images_batch)):
-                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
-
-                    if len(boxes) > 0:
-                        boxes[:, 2] -= boxes[:, 0]
-                        boxes[:, 3] -= boxes[:, 1]
-                        boxes = boxes.tolist()
-                        # boxes = [list(map(round, box)) for box in boxes]
-
-                        for box_id in range(len(boxes)):
-                            # if scores[box_id] < 0.5:
-                            #     continue
-
-                            box = boxes[box_id]
-                            label = labels[box_id]
-                            score = scores[box_id]
-
-                            image_result = {
-                                'image_id': annotations[batch_idx]["img_id"].cpu().item(),
-                                'category_id': label.item(),
-                                'bbox': box,
-                                'score': score.item(),
-                            }
-
-                            inference_results.append(image_result)
-
         result = None
 
-        print('----------------------COCOeval Metric end--------------------------')
         del valid_data_loader
 
         return model, cross_valid_fold, result
@@ -103,18 +71,18 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
         train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
+        optimizer = torch.optim.Adam(params, lr=1e-4)
 
         writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
         writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
-        writer_loss_mask = SummaryWriter(log_dir='logs/%d-fold/loss_mask' % cross_valid_fold)
         writer_loss_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_box_reg' % cross_valid_fold)
         writer_loss_objectness = SummaryWriter(log_dir='logs/%d-fold/loss_objectness' % cross_valid_fold)
+        writer_loss_rpn_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_rpn_box_reg' % cross_valid_fold)
 
         min_valid_loss = 999999
         for epoch in range(1, num_epochs + 1):
-            train_loss, train_loss_classifier, train_loss_mask, train_loss_box_reg, train_loss_objectness = 0, 0, 0, 0, 0
-            valid_loss, valid_loss_classifier, valid_loss_mask, valid_loss_box_reg, valid_loss_objectness = 0, 0, 0, 0, 0
+            train_loss, train_loss_classifier, train_loss_box_reg, train_loss_objectness, train_loss_rpn_box_reg = 0, 0, 0, 0, 0
+            valid_loss, valid_loss_classifier, valid_loss_box_reg, valid_loss_objectness, valid_loss_rpn_box_reg = 0, 0, 0, 0, 0
             model.train()
             for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
                 imgs = list(img.to(device) for img in images_batch)
@@ -130,24 +98,25 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
                 train_loss += losses
                 train_loss_classifier += loss_dict['loss_classifier'].item()
-                train_loss_mask += loss_dict['loss_mask'].item()
                 train_loss_box_reg += loss_dict['loss_box_reg'].item()
                 train_loss_objectness += loss_dict['loss_objectness'].item()
+                train_loss_rpn_box_reg += loss_dict['loss_rpn_box_reg'].item()
 
             train_loss /= len(train_data_loader)
             train_loss_classifier /= len(train_data_loader)
-            train_loss_mask /= len(train_data_loader)
             train_loss_box_reg /= len(train_data_loader)
             train_loss_objectness /= len(train_data_loader)
+            train_loss_rpn_box_reg /= len(train_data_loader)
 
             writer_loss.add_scalar('loss', train_loss, epoch)
             writer_loss_classifier.add_scalar('loss_classifier', train_loss_classifier, epoch)
-            writer_loss_mask.add_scalar('loss_mask', train_loss_mask, epoch)
             writer_loss_box_reg.add_scalar('loss_box_reg', train_loss_box_reg, epoch)
             writer_loss_objectness.add_scalar('loss_objectness', train_loss_objectness, epoch)
+            writer_loss_rpn_box_reg.add_scalar('loss_rpn_box_reg', train_loss_rpn_box_reg, epoch)
 
-            print(f"train epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {train_loss_classifier:.5f}, loss_mask: {train_loss_mask:.5f}, "
-                  f"loss_box_reg: {train_loss_box_reg:.5f}, loss_objectness: {train_loss_objectness:.5f}, Total_loss: {train_loss:.5f}")
+            print(
+                f"train epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {train_loss_classifier:.5f}, loss_box_reg: {train_loss_box_reg:.5f}, "
+                f"loss_objectness: {train_loss_objectness:.5f}, loss_rpn_box_reg: {train_loss_rpn_box_reg:.5f}, Total_loss: {train_loss:.5f}")
 
             for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
                 with torch.no_grad():
@@ -160,76 +129,39 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes):
 
                     valid_loss += losses
                     valid_loss_classifier += loss_dict['loss_classifier'].item()
-                    valid_loss_mask += loss_dict['loss_mask'].item()
                     valid_loss_box_reg += loss_dict['loss_box_reg'].item()
                     valid_loss_objectness += loss_dict['loss_objectness'].item()
+                    valid_loss_rpn_box_reg += loss_dict['loss_rpn_box_reg'].item()
 
-            valid_loss /= len(valid_data_loader)
-            valid_loss_classifier /= len(valid_data_loader)
-            valid_loss_mask /= len(valid_data_loader)
-            valid_loss_box_reg /= len(valid_data_loader)
-            valid_loss_objectness /= len(valid_data_loader)
+                valid_loss /= len(valid_data_loader)
+                valid_loss_classifier /= len(valid_data_loader)
+                valid_loss_box_reg /= len(valid_data_loader)
+                valid_loss_objectness /= len(valid_data_loader)
+                valid_loss_rpn_box_reg /= len(valid_data_loader)
 
-            print(f"valid epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {valid_loss_classifier:.5f}, loss_mask: {valid_loss_mask:.5f}, "
-                f"loss_box_reg: {valid_loss_box_reg:.5f}, loss_objectness: {valid_loss_objectness:.5f}, Total_loss: {valid_loss:.5f}")
+                print(f"valid epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {valid_loss_classifier:.5f}, loss_box_reg: {valid_loss_box_reg:.5f}, "
+                      f"loss_objectness: {valid_loss_objectness:.5f}, loss_rpn_box_reg: {valid_loss_rpn_box_reg:.5f}, Total_loss: {valid_loss:.5f}")
 
-            # Model Save
-            if min_valid_loss > valid_loss:
-                min_valid_loss = valid_loss
-                torch.save({
-                    'epoch': epoch,
-                    'valid_loss': min_valid_loss,
-                    'optimizer': optimizer.state_dict,
-                    'state_dict': model.state_dict()
-                }, model_path)
+                # Model Save
+                if min_valid_loss > valid_loss:
+                    min_valid_loss = valid_loss
+                    torch.save({
+                        'epoch': epoch,
+                        'valid_loss': min_valid_loss,
+                        'optimizer': optimizer.state_dict,
+                        'state_dict': model.state_dict()
+                    }, model_path)
 
-        writer_loss.close()
-        writer_loss_classifier.close()
-        writer_loss_mask.close()
-        writer_loss_box_reg.close()
-        writer_loss_objectness.close()
+            writer_loss.close()
+            writer_loss_classifier.close()
+            writer_loss_box_reg.close()
+            writer_loss_objectness.close()
+            writer_loss_rpn_box_reg.close()
 
         print('----------------------train end--------------------------')
 
-        print('----------------------COCOeval Metric start--------------------------')
-        model.eval()
-        inference_results = []
-        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
-            with torch.no_grad():
-                imgs = list(img.to(device) for img in images_batch)
-                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
-
-                inference = model(imgs)
-
-                for batch_idx in range(len(images_batch)):
-                    boxes, labels, scores, mask = inference[batch_idx]["boxes"], inference[batch_idx]["labels"].cpu(), inference[batch_idx]["scores"].cpu(), inference[batch_idx]["masks"].cpu()
-
-                    if len(boxes) > 0:
-                        boxes[:, 2] -= boxes[:, 0]
-                        boxes[:, 3] -= boxes[:, 1]
-                        boxes = boxes.tolist()
-                        # boxes = [list(map(round, box)) for box in boxes]
-
-                        for box_id in range(len(boxes)):
-                            box = boxes[box_id]
-                            label = labels[box_id]
-                            score = scores[box_id]
-
-                            # if score < threshold:
-                            #     break
-
-                            image_result = {
-                                'image_id': annotations[batch_idx]["img_id"].cpu().item(),
-                                'bbox': box,
-                                'category_id': label.item(),
-                                'score': score.item(),
-                            }
-
-                            inference_results.append(image_result)
-
         result = None
 
-        print('----------------------COCOeval Metric end--------------------------')
         del train_data_loader
         del valid_data_loader
 
@@ -246,7 +178,7 @@ def eval_tta(augment, reporter):
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = getFasterRCNN(num_classes=num_classes).to(device)
 
     checkpoint = torch.load("/YDE/SmallObjectAugmentFAA/" + save_path)
     model.load_state_dict(checkpoint["state_dict"])
@@ -281,9 +213,9 @@ def eval_tta(augment, reporter):
 
 
 if __name__ == "__main__":
-    dataroot = "/YDE/DOTA"
+    dataroot = "/YDE/DOTA/split_ss_dota"
     dataset = "DOTA"
-    model = "Mask_R-CNN"
+    model = "Faster_R-CNN"
     # until = 5
     num_op = 2
     num_policy = 5
@@ -291,8 +223,8 @@ if __name__ == "__main__":
     cross_valid_num = 4
     cross_valid_ratio = 0.25
     num_epochs = 200
-    num_classes = 91
-    batch_size = 8
+    num_classes = 18
+    batch_size = 16
 
     add_filehandler(logger, os.path.join('models', '%s_%s.log' % (dataset, model)))
     logger.info('configuration...')
