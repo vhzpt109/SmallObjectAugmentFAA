@@ -19,62 +19,19 @@ from ray.tune import register_trainable, run_experiments
 from augmentations import smallobjectaugmentation_list, appendAlbumentation
 from archive import remove_deplicates, policy_decoder
 
-from torchvision.models.detection import maskrcnn_resnet50_fpn
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
-# Set cuda
-from datautils import get_dataloaders, get_valid_dataloaders
+from cocoutils import get_dataloaders, get_valid_dataloaders, get_coco_stats
 from loggingutil import get_logger, add_filehandler
 
+from models import get_model_instance_segmentation
+
+# Set cuda
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"  # Arrange GPU devices starting from 0
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 logger = get_logger('SmallObjectAugmentFAA')
-
-
-def get_coco_stats(coco_stats, is_print=False):
-    AP_IoU05_95_area_all_maxDets100, AP_IoU05_area_all_maxDets100, AP_IoU075_area_all_maxDets100, AP_IoU05_95_area_small_maxDets100, \
-    AP_IoU05_95_area_medium_maxDets100, AP_IoU05_95_area_large_maxDets100, AR_IoU05_95_area_all_maxDets1, AR_IoU05_95_area_all_maxDets10, \
-    AR_IoU05_95_area_all_maxDets100, AR_IoU05_95_area_small_maxDets100, AR_IoU05_95_area_medium_maxDets100, AR_IoU05_95_area_large_maxDets100 \
-        = map(float, coco_stats)
-
-    if is_print:
-        print(f"AP_IoU05_95_area_all_maxDets100: {AP_IoU05_95_area_all_maxDets100:.5f}, AP_IoU05_area_all_maxDets100: {AP_IoU05_area_all_maxDets100:.5f}, "
-              f"AP_IoU075_area_all_maxDets100: {AP_IoU075_area_all_maxDets100:.5f}, AP_IoU05_95_area_small_maxDets100: {AP_IoU05_95_area_small_maxDets100:.5f}, "
-              f"AP_IoU05_95_area_medium_maxDets100: {AP_IoU05_95_area_medium_maxDets100:.5f}, AP_IoU05_95_area_large_maxDets100: {AP_IoU05_95_area_large_maxDets100:.5f},"
-              f"AR_IoU05_95_area_all_maxDets1: {AR_IoU05_95_area_all_maxDets1:.5f}, AR_IoU05_95_area_all_maxDets10: {AR_IoU05_95_area_all_maxDets10:.5f},"
-              f"AR_IoU05_95_area_all_maxDets100: {AR_IoU05_95_area_all_maxDets100:.5f}, AR_IoU05_95_area_small_maxDets100: {AR_IoU05_95_area_small_maxDets100:.5f},"
-              f"AR_IoU05_95_area_medium_maxDets100: {AR_IoU05_95_area_medium_maxDets100:.5f}, AR_IoU05_95_area_large_maxDets100: {AR_IoU05_95_area_large_maxDets100:.5f}")
-
-    result = {"AP_IoU05_95_area_all_maxDets100": AP_IoU05_95_area_all_maxDets100,
-              "AP_IoU05_area_all_maxDets100": AP_IoU05_area_all_maxDets100,
-              "AP_IoU075_area_all_maxDets100": AP_IoU075_area_all_maxDets100,
-              "AP_IoU05_95_area_small_maxDets100": AP_IoU05_95_area_small_maxDets100,
-              "AP_IoU05_95_area_medium_maxDets100": AP_IoU05_95_area_medium_maxDets100,
-              "AP_IoU05_95_area_large_maxDets100": AP_IoU05_95_area_large_maxDets100,
-              "AR_IoU05_95_area_all_maxDets1": AR_IoU05_95_area_all_maxDets1,
-              "AR_IoU05_95_area_all_maxDets10": AR_IoU05_95_area_all_maxDets10,
-              "AR_IoU05_95_area_all_maxDets100": AR_IoU05_95_area_all_maxDets100,
-              "AR_IoU05_95_area_small_maxDets100": AR_IoU05_95_area_small_maxDets100,
-              "AR_IoU05_95_area_medium_maxDets100": AR_IoU05_95_area_medium_maxDets100,
-              "AR_IoU05_95_area_large_maxDets100": AR_IoU05_95_area_large_maxDets100}
-
-    return result
-
-
-def get_model_instance_segmentation(num_classes):
-    model = maskrcnn_resnet50_fpn(pretrained=True)
-    # in_features = model.roi_heads.box_predictor.cls_score.in_features
-    # model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    # in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    # hidden_layer = 256
-    # model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
-
-    return model
 
 
 @ray.remote(num_cpus=8, num_gpus=1)
@@ -330,7 +287,6 @@ def eval_tta(augment, reporter):
     for valid_loader in valid_loaders:
         for i, (images_batch, annotations_batch) in enumerate(valid_loader):
             with torch.no_grad():
-                print("a")
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
@@ -339,7 +295,6 @@ def eval_tta(augment, reporter):
                 losses = sum(loss for loss in loss_dict.values())
 
                 loss.append(losses.item())
-                print("b")
     reporter(loss=np.mean(loss), metric=0, elapsed_time=0)
 
     return np.mean(loss)

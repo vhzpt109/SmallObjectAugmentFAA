@@ -6,11 +6,13 @@ import torch
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import albumentations
 
 from dataset import COCODataset, collate_fn
 from torchvision.utils import save_image
+from augmentations import SmallObjectAugmentation
 
-from search import get_model_instance_segmentation, get_coco_stats
+from search_coco import get_model_instance_segmentation, get_coco_stats
 
 if __name__ == "__main__":
     dataroot = "/YDE/COCO"
@@ -27,7 +29,13 @@ if __name__ == "__main__":
     train_batch_size = 16
     valid_batch_size = 8
 
-    valid_dataset = COCODataset(root=dataroot, split='val')
+    augment = albumentations.Compose([
+        SmallObjectAugmentation(copy_times=1, one_object=True, p=1.),
+        SmallObjectAugmentation(copy_times=1, p=1.),
+        SmallObjectAugmentation(copy_times=1, all_objects=True, p=1.)
+    ])
+
+    valid_dataset = COCODataset(root=dataroot, split='val', augmentation=augment)
     valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
                                                     batch_size=valid_batch_size,
                                                     collate_fn=collate_fn,

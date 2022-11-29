@@ -16,19 +16,47 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-class COCODataset(Dataset):
+class DOTADataset(Dataset):
     def __init__(self,
-                 root='/YDE/COCO',
-                 split='train',
+                 root='/YDE/DOTA',
+                 type='train',
                  augmentation=None,
                  save_visualization=False):
         super().__init__()
 
         self.root = root
 
-        assert split in ['train', 'val', 'test']
-        self.split = split
-        self.set_name = split + '2017'
+        assert type in ['train', 'valid', 'test']
+        self.type = type
+
+        self.augmentation = augmentation
+
+        self.augmentation = augmentation
+
+        self.save_visualization = save_visualization
+
+        self.img_path = glob.glob(os.path.join(self.root, self.type, 'images', '*.png'))
+
+    def __getitem__(self, index):
+        return None
+
+    def __len__(self):
+        return len(self.img_path)
+
+
+class COCODataset(Dataset):
+    def __init__(self,
+                 root='/YDE/COCO',
+                 type='train',
+                 augmentation=None,
+                 save_visualization=False):
+        super().__init__()
+
+        self.root = root
+
+        assert type in ['train', 'val', 'test']
+        self.split = type
+        self.set_name = type + '2017'
 
         self.augmentation = augmentation
 
