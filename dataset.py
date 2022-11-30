@@ -93,6 +93,7 @@ class DOTADataset(Dataset):
         if self.save_visualization:
             cv_image = image.detach().cpu().numpy()
             cv_image = np.transpose(cv_image, (1, 2, 0))
+            cv_image = cv_image * 255.
             cv_image = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
             cv_image = cv_image.astype(np.uint8).copy()
 
@@ -100,7 +101,7 @@ class DOTADataset(Dataset):
 
             for i in range(len(boxes)):
                 x_min, y_min, x_max, y_max = map(int, boxes[i])
-                label = values.get(labels[i])
+                label = values.get(labels[i].item())
 
                 cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
                 cv_image = cv2.putText(cv_image, label, (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
@@ -117,7 +118,7 @@ class DOTADataset(Dataset):
         return image, result_annotation
 
     def __len__(self):
-        return len(self.img_path)
+        return len(self.img_list)
 
 
 class COCODataset(Dataset):
