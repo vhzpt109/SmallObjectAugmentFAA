@@ -248,8 +248,8 @@ if __name__ == "__main__":
                 try:
                     latest_ckpt = torch.load(k_fold_model_paths[cross_valid_idx])
                     if 'epoch' not in latest_ckpt:
-                        epochs_per_cv['cv%d' % (cross_valid_idx + 1)] = -1
-                        continue
+                        # epochs_per_cv['cv%d' % (cross_valid_idx + 1)] = -1
+                        break
                     epochs_per_cv['cv%d' % (cross_valid_idx + 1)] = latest_ckpt['epoch']
                 except Exception as e:
                     # print(e)
@@ -259,7 +259,10 @@ if __name__ == "__main__":
                 is_done = True
             if len(epochs_per_cv) == cross_valid_num and min(epochs_per_cv.values()) >= epoch:
                 break
-            time.sleep(10)
+            if len(epochs_per_cv) == cross_valid_num and min(epochs_per_cv.values()) - 2 > epoch:
+                pass
+            else:
+                time.sleep(10)
         if is_done:
             break
 

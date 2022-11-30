@@ -12,7 +12,8 @@ from dataset import COCODataset, collate_fn
 from torchvision.utils import save_image
 from augmentations import SmallObjectAugmentation
 
-from search_coco import get_model_instance_segmentation, get_coco_stats
+from models import MaskRCNN
+from cocoutils import get_coco_stats
 
 if __name__ == "__main__":
     dataroot = "/YDE/COCO"
@@ -45,7 +46,7 @@ if __name__ == "__main__":
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    model = get_model_instance_segmentation(num_classes=num_classes).to(device)
+    model = MaskRCNN(num_classes=num_classes).to(device)
 
     model_path = "models/Mask_R-CNN_COCO_fold1.pth"
     # if exist model, evaluate model after load
