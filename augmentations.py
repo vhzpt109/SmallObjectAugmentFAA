@@ -210,20 +210,20 @@ def albumentation_augment_list():  # 16 oeprations and their ranges
 
 def smallobjectaugmentation_list():  # 13 oeprations and their ranges
     l = [
-        ("Shear", -10, 10), # 0
-        ("Translate", -0.1, 0.1), # 1
-        ("Rotate", -15, 15), # 2
-        ("Invert", 0, 1), # 3
-        ("Equalize", 0, 1), # 4
-        ("Solarize", 0, 256), # 5
-        ("Posterize", 4, 8), # 6
-        ("RandomContrast", 0.1, 1.9), # 7
-        ("ColorJitter", 0.1, 1.9), # 8
-        ("RandomBrightness", 0.1, 1.9), # 9
-        ("Sharpen", 0.1, 1.9), # 10
-        ("SmallObjectAugment1", -10, 10), # 11
-        ("SmallObjectAugment2", -10, 10), # 12
-        ("SmallObjectAugment3", -10, 10), # 13
+        # ("Shear", -10, 10), # 0
+        # ("Translate", -0.1, 0.1), # 1
+        # ("Rotate", -15, 15), # 2
+        # ("Invert", 0, 1), # 3
+        # ("Equalize", 0, 1), # 4
+        # ("Solarize", 0, 256), # 5
+        # ("Posterize", 4, 8), # 6
+        # ("RandomContrast", 0.1, 1.9), # 7
+        # ("ColorJitter", 0.1, 1.9), # 8
+        # ("RandomBrightness", 0.1, 1.9), # 9
+        # ("Sharpen", 0.1, 1.9), # 10
+        ("SmallObjectAugmentOne", 1, 3), # 11
+        ("SmallObjectAugmentMultiple", 1, 3), # 12
+        ("SmallObjectAugmentAll", 1, 3), # 13
     ]
     return l
 
@@ -251,16 +251,20 @@ def appendAlbumentation(augmentation_list, name, pr, level):
         augmentation_list.append(albumentations.RandomBrightness(p=pr))
     elif name == "Sharpen":
         augmentation_list.append(albumentations.Sharpen(p=pr))
-    elif name == "SmallObjectAugment1":
-        augmentation_list.append(SmallObjectAugmentation(copy_times=1, one_object=True, p=pr))
-    elif name == "SmallObjectAugment2":
-        augmentation_list.append(SmallObjectAugmentation(copy_times=1, p=pr))
-    elif name == "SmallObjectAugment3":
-        augmentation_list.append(SmallObjectAugmentation(copy_times=1, all_objects=True, p=pr))
+    elif name == "SmallObjectAugmentOne":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), one_object=True, p=pr))
+    elif name == "SmallObjectAugmentMultiple":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), p=pr))
+    elif name == "SmallObjectAugmentAll":
+        augmentation_list.append(SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), all_objects=True, p=pr))
 
 
 def range_scale(level, minval, maxval):
     return level * (maxval - minval) + minval
+
+
+def int_range_scale(level, minval, maxval):
+    return int(level * (maxval - minval) + minval)
 
 
 class SmallObjectAugmentation(DualTransform):

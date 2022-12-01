@@ -307,7 +307,7 @@ if __name__ == "__main__":
     # until = 5
     num_op = 2
     num_policy = 5
-    num_search = 200
+    num_search = 50
     cross_valid_num = 4
     cross_valid_ratio = 0.25
     num_epochs = 200
