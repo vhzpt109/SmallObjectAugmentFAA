@@ -14,10 +14,10 @@ def get_dataloaders(dataroot, type='train', batch_size=8, fold_idx=0, augmentati
     for _ in range(fold_idx):
         train_idx, valid_idx = next(sss)
 
-    train_sampler = SubsetRandomSampler(train_idx)
+    train_sampler = SubsetSampler(train_idx)
     valid_sampler = SubsetSampler(valid_idx)
 
-    train_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True if train_sampler is None else False, num_workers=8, sampler=train_sampler, collate_fn=collate_fn)
+    train_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=train_sampler, collate_fn=collate_fn)
     valid_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=valid_sampler, collate_fn=collate_fn)
 
     return train_data_loader, valid_data_loader

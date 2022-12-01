@@ -67,12 +67,12 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
 
                 inference = model(imgs)
 
-                for i in range(len(annotations)):
-                    boxes_target = annotations[i]["boxes"].cpu()
-                    boxes_preds = inference[i]["boxes"].cpu()
-                    labels_target = annotations[i]["labels"].cpu()
-                    labels_preds = inference[i]["labels"].cpu()
-                    scores_preds = inference[i]["scores"].cpu()
+                for j in range(len(annotations)):
+                    boxes_target = annotations[j]["boxes"].cpu()
+                    boxes_preds = inference[j]["boxes"].cpu()
+                    labels_target = annotations[j]["labels"].cpu()
+                    labels_preds = inference[j]["labels"].cpu()
+                    scores_preds = inference[j]["scores"].cpu()
 
                     targets.append(
                         dict(
@@ -156,6 +156,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
             targets = []
             preds = []
             model.eval()
+            metrics.reset()
             for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
                 with torch.no_grad():
                     imgs = list(img.to(device) for img in images_batch)
@@ -163,12 +164,12 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
 
                     inference = model(imgs)
 
-                    for i in range(len(annotations)):
-                        boxes_target = annotations[i]["boxes"].cpu()
-                        boxes_preds = inference[i]["boxes"].cpu()
-                        labels_target = annotations[i]["labels"].cpu()
-                        labels_preds = inference[i]["labels"].cpu()
-                        scores_preds = inference[i]["scores"].cpu()
+                    for j in range(len(annotations)):
+                        boxes_target = annotations[j]["boxes"].cpu()
+                        boxes_preds = inference[j]["boxes"].cpu()
+                        labels_target = annotations[j]["labels"].cpu()
+                        labels_preds = inference[j]["labels"].cpu()
+                        scores_preds = inference[j]["scores"].cpu()
 
                         targets.append(
                             dict(
@@ -258,6 +259,7 @@ def eval_tta(augment, reporter):
     for valid_loader in valid_loaders:
         targets = []
         preds = []
+        metrics.reset()
         for i, (images_batch, annotations_batch) in enumerate(valid_loader):
             with torch.no_grad():
                 model.eval()
@@ -266,12 +268,12 @@ def eval_tta(augment, reporter):
 
                 inference = model(imgs)
 
-                for i in range(len(annotations)):
-                    boxes_target = annotations[i]["boxes"].cpu()
-                    boxes_preds = inference[i]["boxes"].cpu()
-                    labels_target = annotations[i]["labels"].cpu()
-                    labels_preds = inference[i]["labels"].cpu()
-                    scores_preds = inference[i]["scores"].cpu()
+                for j in range(len(annotations)):
+                    boxes_target = annotations[j]["boxes"].cpu()
+                    boxes_preds = inference[j]["boxes"].cpu()
+                    labels_target = annotations[j]["labels"].cpu()
+                    labels_preds = inference[j]["labels"].cpu()
+                    scores_preds = inference[j]["scores"].cpu()
 
                     targets.append(
                         dict(
@@ -289,7 +291,6 @@ def eval_tta(augment, reporter):
 
         metrics.update(preds=preds, target=targets)
         result = metrics.compute()
-        print(result)
 
         maps.append(result["map"])
         maps_small.append(result["map_small"])
