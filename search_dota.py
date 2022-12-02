@@ -16,10 +16,10 @@ from hyperopt import hp
 from ray.tune.suggest.hyperopt import HyperOptSearch
 from ray.tune import register_trainable, run_experiments
 
-from augmentations import smallobjectaugmentation_list, appendAlbumentation
+from augmentations import smallobjectaugmentation_list, appendAlbumentation, ApplyFoundPolicy
 from archive import remove_deplicates, policy_decoder
 
-from dotautils import get_dataloaders, get_valid_dataloaders
+from dotautils import get_kfold_dataloaders, get_dataloaders
 from loggingutil import get_logger, add_filehandler
 
 from models import getFasterRCNN
@@ -37,7 +37,7 @@ logger = get_logger('SmallObjectAugmentFAA')
 
 
 @ray.remote(num_cpus=8, num_gpus=1)
-def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentation):
+def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentation, is_final):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     # print('Device:', device)
@@ -50,7 +50,10 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
 
     # if exist model, evaluate model after load
     if os.path.exists(model_path):
-        valid_data_loader = get_valid_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size)
+        if is_final:
+            valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size)
+        else:
+            _, valid_data_loader = get_kfold_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         print("%s Model Exist! Load Model.." % model_path)
 
@@ -100,11 +103,15 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
     else:  # not exist, train model
         print("%s Model not Exist! Train Model.." % model_path)
         print('----------------------train start--------------------------')
-
-        train_data_loader, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
+        
+        if is_final:
+            train_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size)
+            valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size)
+        else:
+            train_data_loader, valid_data_loader = get_kfold_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(params, lr=1e-4)
+        optimizer = torch.optim.Adam(params, lr=5e-4)
 
         writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
         writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
@@ -114,8 +121,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
         writer_map = SummaryWriter(log_dir='logs/%d-fold/map' % cross_valid_fold)
         writer_map_small = SummaryWriter(log_dir='logs/%d-fold/map_small' % cross_valid_fold)
 
-        map_max = 0
-        best_result = None
+        loss_min = 9999
         for epoch in range(1, num_epochs + 1):
             train_loss, train_loss_classifier, train_loss_box_reg, train_loss_objectness, train_loss_rpn_box_reg = 0, 0, 0, 0, 0
             model.train()
@@ -153,57 +159,14 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
                 f"train epoch : {epoch}, cross_valid_fold : {cross_valid_fold}, loss_classifier: {train_loss_classifier:.5f}, loss_box_reg: {train_loss_box_reg:.5f}, "
                 f"loss_objectness: {train_loss_objectness:.5f}, loss_rpn_box_reg: {train_loss_rpn_box_reg:.5f}, Total_loss: {train_loss:.5f}")
 
-            targets = []
-            preds = []
-            model.eval()
-            metrics.reset()
-            for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
-                with torch.no_grad():
-                    imgs = list(img.to(device) for img in images_batch)
-                    annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
-
-                    inference = model(imgs)
-
-                    for j in range(len(annotations)):
-                        boxes_target = annotations[j]["boxes"].cpu()
-                        boxes_preds = inference[j]["boxes"].cpu()
-                        labels_target = annotations[j]["labels"].cpu()
-                        labels_preds = inference[j]["labels"].cpu()
-                        scores_preds = inference[j]["scores"].cpu()
-
-                        targets.append(
-                            dict(
-                                boxes=boxes_target,
-                                labels=labels_target
-                            )
-                        )
-                        preds.append(
-                            dict(
-                                boxes=boxes_preds,
-                                labels=labels_preds,
-                                scores=scores_preds
-                            )
-                        )
-
-            metrics.update(preds=preds, target=targets)
-            result = metrics.compute()
-
-            writer_map.add_scalar('map', result["map"], epoch)
-            writer_map_small.add_scalar('map_small', result["map_small"], epoch)
-
-            print(f"valid epoch : %d, cross_valid_fold : %d, map: %f, map_small: %f" % (epoch, cross_valid_fold, result["map"], result["map_small"]))
-
-            # Model Save
-            if map_max < result["map"]:
-                map_max = result["map"]
+            if loss_min > train_loss:
+                loss_min = train_loss
                 torch.save({
                     'epoch': epoch,
-                    'map': map_max,
+                    'loss': loss_min,
                     'optimizer': optimizer.state_dict,
                     'state_dict': model.state_dict()
                 }, model_path)
-
-                best_result = result
 
             epoch_log = open(model_path[:-4] + "_epoch.txt", "w")
             epoch_log.write(str(epoch))
@@ -219,10 +182,43 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
 
         print('----------------------train end--------------------------')
 
+        targets = []
+        preds = []
+        model.eval()
+        metrics.reset()
+        for i, (images_batch, annotations_batch) in enumerate(valid_data_loader):
+            with torch.no_grad():
+                imgs = list(img.to(device) for img in images_batch)
+                annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
+                inference = model(imgs)
+                for j in range(len(annotations)):
+                    boxes_target = annotations[j]["boxes"].cpu()
+                    boxes_preds = inference[j]["boxes"].cpu()
+                    labels_target = annotations[j]["labels"].cpu()
+                    labels_preds = inference[j]["labels"].cpu()
+                    scores_preds = inference[j]["scores"].cpu()
+                    targets.append(
+                        dict(
+                            boxes=boxes_target,
+                            labels=labels_target
+                        )
+                    )
+                    preds.append(
+                        dict(
+                            boxes=boxes_preds,
+                            labels=labels_preds,
+                            scores=scores_preds
+                        )
+                    )
+        metrics.update(preds=preds, target=targets)
+        result = metrics.compute()
+
+        print(f"valid, cross_valid_fold : %d, map: %f, map_small: %f" % (cross_valid_fold, result["map"], result["map_small"]))
+
         del train_data_loader
         del valid_data_loader
 
-        return model, cross_valid_fold, best_result
+        return model, cross_valid_fold, result
 
 
 def eval_tta(augment, reporter):
@@ -250,7 +246,7 @@ def eval_tta(augment, reporter):
         policy = random.choice(polices)
         for name, pr, level in policy:
             appendAlbumentation(augmentation, name, pr, level)
-        _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
+        _, valid_data_loader = get_kfold_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         valid_loaders.append(valid_data_loader)
 
@@ -262,7 +258,6 @@ def eval_tta(augment, reporter):
         metrics.reset()
         for i, (images_batch, annotations_batch) in enumerate(valid_loader):
             with torch.no_grad():
-                model.eval()
                 imgs = list(img.to(device) for img in images_batch)
                 annotations = [{k: v.to(device) for k, v in a.items()} for a in annotations_batch]
 
@@ -297,7 +292,7 @@ def eval_tta(augment, reporter):
 
     reporter(map=np.mean(maps), map_small=np.mean(maps_small), elapsed_time=0)
 
-    return np.mean(maps)
+    return np.mean(maps_small)
 
 
 if __name__ == "__main__":
@@ -305,12 +300,12 @@ if __name__ == "__main__":
     dataset = "DOTA"
     model = "Faster_R-CNN"
     # until = 5
-    num_op = 2
-    num_policy = 5
+    num_op = 1
+    num_policy = 2
     num_search = 50
-    cross_valid_num = 4
+    cross_valid_num = 2
     cross_valid_ratio = 0.25
-    num_epochs = 200
+    num_epochs = 150
     num_classes = 18
     batch_size = 12
 
@@ -325,7 +320,7 @@ if __name__ == "__main__":
     k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i + 1) for i in range(cross_valid_num)]
 
     logger.info('----- Train without Augmentations, cv=%d ratio=%.2f -----' % (cross_valid_num, cross_valid_ratio))
-    parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None) for i in range(cross_valid_num)]
+    parallel_train = [train_model.remote(model_path=k_fold_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None, is_final=False) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs), leave=True)
     is_done = False
@@ -369,7 +364,7 @@ if __name__ == "__main__":
 
     final_policy_set = []
     total_computation = 0
-    reward_metric = 'map'
+    reward_metric = 'map_small'
     for cross_valid_fold in range(1, cross_valid_num + 1):
         name = "search_%s_%s_fold%d_ratio%.2f" % (dataset, model, cross_valid_fold, cross_valid_ratio)
         print(name)
@@ -401,7 +396,7 @@ if __name__ == "__main__":
 
         for result in results[:num_result_per_cv]:
             final_policy = policy_decoder(result.config, num_policy, num_op)
-            logger.info('loss=%.12f %s' % (result.last_result['loss'], final_policy))
+            logger.info('map=%.12f, map_small=%.12f %s' % (result.last_result['map'], result.last_result['map_small'], final_policy))
 
             final_policy = remove_deplicates(final_policy)
             final_policy_set.extend(final_policy)
@@ -409,14 +404,16 @@ if __name__ == "__main__":
     logger.info(json.dumps(final_policy_set))
     logger.info('final_policy=%d' % len(final_policy_set))
     # logger.info('processed in %.4f secs, gpu hours=%.4f' % (w.pause('search'), total_computation / 3600.))
-    logger.info('----- Train with Augmentations, model=%s dataset=%s aug=%s ratio(=%.2f -----' % (model, dataset, "", cross_valid_ratio))
+    logger.info('----- Train with Augmentations, model=%s dataset=%s aug=%s ratio(=%.2f) -----' % (model, dataset, "", cross_valid_ratio))
 
-    k_fold_default_augment_model_paths = ['%s_default_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
-    k_fold_optimal_augment_model_paths = ['%s_optimal_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
-    parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_default_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None) for i in range(cross_valid_num)] + \
-                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None) for i in range(cross_valid_num)]
 
-    tqdm_epoch = tqdm(num_epochs)
+    k_fold_default_augment_model_paths = ['models/%s_default_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
+    k_fold_optimal_augment_model_paths = ['models/%s_optimal_augment_fold%d' % (model, i) for i in range(cross_valid_num)]
+    parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_default_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None, is_final=True) for i in range(cross_valid_num)] + \
+                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=[ApplyFoundPolicy(policies=final_policy_set)], is_final=True) for i in range(cross_valid_num)]
+
+    tqdm_epoch = tqdm(range(num_epochs), leave=True)
+    print(tqdm_epoch)
     is_done = False
     for epoch in tqdm_epoch:
         while True:

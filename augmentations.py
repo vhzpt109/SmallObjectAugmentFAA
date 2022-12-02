@@ -16,6 +16,7 @@ from typing import Tuple, Any, Dict
 
 BoxInternalType = Tuple[float, float, float, float]
 
+
 def ShearX(img, v):  # [-0.3, 0.3]
     assert -0.3 <= v <= 0.3
     if random_mirror and random.random() > 0.5:
@@ -301,7 +302,8 @@ class SmallObjectAugmentation(DualTransform):
         if np.random.rand() > self.p:
             return sample
 
-        image, bboxes, labels, mask = sample['image'], sample['bboxes'], sample['labels'], sample['mask']
+        # image, bboxes, labels, mask = sample['image'], sample['bboxes'], sample['labels'], sample['mask']
+        image, bboxes, labels = sample['image'], sample['bboxes'], sample['labels']
         h, w = image.shape[0], image.shape[1]
 
         small_object_list = list()
@@ -339,18 +341,19 @@ class SmallObjectAugmentation(DualTransform):
             for i in range(self.copy_times):
                 new_bbox = self.create_copy_bbox(h, w, bbox, bboxes)
                 if new_bbox is not None:
-                    image = self.add_patch_in_img(new_bbox, bbox, image, None)
+                    image = self.add_patch_in_img(new_bbox, bbox, image)
 
                     temp_bbox = (new_bbox[0] / w, new_bbox[1] / h, new_bbox[2] / w, new_bbox[3] / h, new_bbox[4])
                     bboxes.append(temp_bbox)
 
                     labels = np.append(labels, new_bbox[4])
 
-                    temp_mask = np.zeros((1, mask.shape[1], mask.shape[2]))
-                    temp_mask[0, new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]] = mask[bbox_of_small_object[idx], bbox[1]:bbox[3], bbox[0]:bbox[2]]
-                    mask = np.append(mask, temp_mask, axis=0)
+                    # temp_mask = np.zeros((1, mask.shape[1], mask.shape[2]))
+                    # temp_mask[0, new_bbox[1]:new_bbox[3], new_bbox[0]:new_bbox[2]] = mask[bbox_of_small_object[idx], bbox[1]:bbox[3], bbox[0]:bbox[2]]
+                    # mask = np.append(mask, temp_mask, axis=0)
 
-        return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
+        # return {'image': image, 'bboxes': bboxes, 'labels': labels, 'mask': mask}
+        return {'image': image, 'bboxes': bboxes, 'labels': labels}
 
     def issmallobject(self, h, w):
         if h * w <= self.thresh:
@@ -398,7 +401,7 @@ class SmallObjectAugmentation(DualTransform):
             return new_bbox
         return None
 
-    def add_patch_in_img(self, new_bbox, bbox, image, mask):
+    def add_patch_in_img(self, new_bbox, bbox, image):
         new_bbox = list(map(int, new_bbox))
         bbox = list(map(int, bbox))
 
@@ -411,13 +414,21 @@ class SmallObjectAugmentation(DualTransform):
         return image
 
 
-augment_dict = {fn.__name__: (fn, v1, v2) for fn, v1, v2 in augment_list()}
+class ApplyFoundPolicy(DualTransform):
+    def __init__(self, always_apply=False, p=0.5, policies=None):
+        super().__init__(always_apply, p)
+        self.policies = policies
 
+    def apply_with_params(self, params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        policy = random.choice(self.policies)
+        augment_type = None
+        for name, pr, level in policy:
+            if name == "SmallObjectAugmentOne":
+                augment_type = SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), one_object=True, p=pr)
+            elif name == "SmallObjectAugmentMultiple":
+                augment_type = SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), p=pr)
+            elif name == "SmallObjectAugmentAll":
+                augment_type = SmallObjectAugmentation(copy_times=int_range_scale(level, 1., 3.), all_objects=True, p=pr)
+        kwargs = augment_type.augment(kwargs)
 
-def get_augment(name):
-    return augment_dict[name]
-
-
-def apply_augment(img, name, level):
-    augment_fn, low, high = get_augment(name)
-    return augment_fn(img.copy(), level * (high - low) + low)
+        return kwargs

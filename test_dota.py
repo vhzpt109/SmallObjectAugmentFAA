@@ -10,8 +10,9 @@ import albumentations
 
 from dataset import DOTADataset, collate_fn
 from torchvision.utils import save_image
-from augmentations import SmallObjectAugmentation
+from augmentations import SmallObjectAugmentation, ApplyFoundPolicy
 from datautil import DOTALABELS
+from dotautils import get_dataloaders
 
 from models import getFasterRCNN
 
@@ -29,19 +30,26 @@ if __name__ == "__main__":
     num_classes = 18
     batch_size = 16
 
-    # augment = albumentations.Compose([
-    #     SmallObjectAugmentation(copy_times=1, one_object=True, p=1.),
-    #     SmallObjectAugmentation(copy_times=1, p=1.),
-    #     SmallObjectAugmentation(copy_times=1, all_objects=True, p=1.)
-    # ])
+    final_policy_set = [[["SmallObjectAugmentMultiple", 0.01626266976413837, 0.49433010590138216]],
+                        [["SmallObjectAugmentAll", 0.8042975847002628, 0.36636396190340426]],
+                        [["SmallObjectAugmentMultiple", 0.5265840327492187, 0.10221705010856841]],
+                        [["SmallObjectAugmentAll", 0.04983947291903776, 0.38160577136336227]],
+                        [["SmallObjectAugmentOne", 0.09984886902535978, 0.7988124190873198]],
+                        [["SmallObjectAugmentAll", 0.044906454938151597, 0.6333051724505026]],
+                        [["SmallObjectAugmentOne", 0.03088111997730225, 0.733516768014754]],
+                        [["SmallObjectAugmentOne", 0.3456079048573106, 0.8256234031567476]],
+                        [["SmallObjectAugmentAll", 0.9629862138140098, 0.42765899921461953]],
+                        [["SmallObjectAugmentMultiple", 0.065554557247403, 0.2266627671054462]],
+                        [["SmallObjectAugmentOne", 0.4944232312536496, 0.797085349781581]],
+                        [["SmallObjectAugmentAll", 0.03446246128095375, 0.5537226331580671]],
+                        [["SmallObjectAugmentOne", 0.5610643206790065, 0.9165613300707536]],
+                        [["SmallObjectAugmentAll", 0.1148301150200296, 0.7607161552798223]],
+                        [["SmallObjectAugmentOne", 0.6805228937206661, 0.3780264498721946]],
+                        [["SmallObjectAugmentOne", 0.4389568071759026, 0.4092837105614071]],
+                        [["SmallObjectAugmentAll", 0.10730013033892644, 0.6597271197040204]],
+                        [["SmallObjectAugmentOne", 0.8985023632203075, 0.9866860192127801]]]
 
-    valid_dataset = DOTADataset(root=dataroot, type='val', augmentation=None)
-    valid_data_loader = torch.utils.data.DataLoader(dataset=valid_dataset,
-                                                    batch_size=num_classes,
-                                                    collate_fn=collate_fn,
-                                                    shuffle=False,
-                                                    num_workers=4
-                                                    )
+    _, valid_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=1, augmentation=[ApplyFoundPolicy(policies=final_policy_set)])
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -80,9 +88,9 @@ if __name__ == "__main__":
                         x_min, y_min, x_max, y_max = map(int, boxes[i])
                         label = values.get(labels[i].item())
 
-                        cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 2)
+                        cv_image = cv2.rectangle(cv_image, (x_min, y_min), (x_max, y_max), (0, 0, 255), 1)
                         cv_image = cv2.putText(cv_image, label, (x_min, y_min - 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                                               (0, 0, 255), 2)
+                                               (0, 0, 255), 1)
                     cv2.imwrite("visualization/" + str(count) + ".jpg", cv_image)
 
                     count += 1
