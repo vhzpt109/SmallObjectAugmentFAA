@@ -111,15 +111,13 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
             train_data_loader, valid_data_loader = get_kfold_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(params, lr=5e-4)
+        optimizer = torch.optim.Adam(params, lr=1e-3)
 
         writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
         writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
         writer_loss_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_box_reg' % cross_valid_fold)
         writer_loss_objectness = SummaryWriter(log_dir='logs/%d-fold/loss_objectness' % cross_valid_fold)
         writer_loss_rpn_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_rpn_box_reg' % cross_valid_fold)
-        writer_map = SummaryWriter(log_dir='logs/%d-fold/map' % cross_valid_fold)
-        writer_map_small = SummaryWriter(log_dir='logs/%d-fold/map_small' % cross_valid_fold)
 
         loss_min = 9999
         for epoch in range(1, num_epochs + 1):
@@ -177,8 +175,6 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
         writer_loss_box_reg.close()
         writer_loss_objectness.close()
         writer_loss_rpn_box_reg.close()
-        writer_map.close()
-        writer_map_small.close()
 
         print('----------------------train end--------------------------')
 
@@ -305,7 +301,7 @@ if __name__ == "__main__":
     num_search = 50
     cross_valid_num = 2
     cross_valid_ratio = 0.25
-    num_epochs = 150
+    num_epochs = 100
     num_classes = 18
     batch_size = 12
 
@@ -316,7 +312,7 @@ if __name__ == "__main__":
     ray.init(num_cpus=32, num_gpus=4, webui_host='127.0.0.1')
     logger.info("%s" % ray.cluster_resources())
 
-    num_result_per_cv = 10
+    num_result_per_cv = 8
     k_fold_model_paths = ['models/%s_%s_fold%d.pth' % (model, dataset, i + 1) for i in range(cross_valid_num)]
 
     logger.info('----- Train without Augmentations, cv=%d ratio=%.2f -----' % (cross_valid_num, cross_valid_ratio))
