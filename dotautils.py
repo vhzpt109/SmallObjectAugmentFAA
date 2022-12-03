@@ -23,8 +23,8 @@ def get_kfold_dataloaders(dataroot, type='train', batch_size=8, fold_idx=0, augm
     return train_data_loader, valid_data_loader
 
 
-def get_dataloaders(dataroot, type='train', batch_size=8):
-    dataset = DOTADataset(root=dataroot, type=type)
+def get_dataloaders(dataroot, type='train', batch_size=8, augmentation=None):
+    dataset = DOTADataset(root=dataroot, type=type, augmentation=augmentation)
 
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=collate_fn)
 
