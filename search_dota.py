@@ -105,13 +105,13 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
         print('----------------------train start--------------------------')
         
         if is_final:
-            train_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size)
+            train_data_loader = get_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, augmentation=augmentation)
             valid_data_loader = get_dataloaders(dataroot=dataroot, type='val', batch_size=batch_size)
         else:
             train_data_loader, valid_data_loader = get_kfold_dataloaders(dataroot=dataroot, type='train', batch_size=batch_size, fold_idx=cross_valid_fold, augmentation=augmentation)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(params, lr=1e-3)
+        optimizer = torch.optim.Adam(params, lr=3e-4)
 
         writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
         writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
