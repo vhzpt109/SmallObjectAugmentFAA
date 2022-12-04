@@ -227,7 +227,7 @@ if __name__ == "__main__":
     cross_valid_num = 2
     cross_valid_ratio = 0.25
     num_epochs = 200
-    num_classes = 18
+    num_classes = 19
     batch_size = 12
 
     add_filehandler(logger, os.path.join('models', '%s_%s_train_with_finalpolicy.log' % (dataset, model)))
