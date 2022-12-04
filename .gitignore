@@ -1,8 +1,8 @@
 
 .idea/*
 __pycache__/*
-models/*
+models*/*
 PycharmProjects/*
 visualization/*
-logs/*
+logs*/*
 *json
