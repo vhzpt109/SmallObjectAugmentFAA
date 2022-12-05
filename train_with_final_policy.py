@@ -103,7 +103,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
                                                                          augmentation=augmentation)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.Adam(params, lr=2e-4)
+        optimizer = torch.optim.Adam(params, lr=1e-4)
 
         writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
         writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
@@ -167,6 +167,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
                         labels_target = annotations[j]["labels"].cpu()
                         labels_preds = inference[j]["labels"].cpu()
                         scores_preds = inference[j]["scores"].cpu()
+
                         targets.append(
                             dict(
                                 boxes=boxes_target,
@@ -228,7 +229,7 @@ if __name__ == "__main__":
     cross_valid_ratio = 0.25
     num_epochs = 200
     num_classes = 19
-    batch_size = 12
+    batch_size = 10
 
     add_filehandler(logger, os.path.join('models', '%s_%s_train_with_finalpolicy.log' % (dataset, model)))
     logger.info('configuration...')
@@ -267,20 +268,19 @@ if __name__ == "__main__":
                         [["SmallObjectAugmentOne", 0.20208435665056812, 0.7304785742118938]],
                         [["SmallObjectAugmentOne", 0.4270846552134828, 0.3575644446137237]]]
 
-    k_fold_default_augment_model_paths = ['models/%s_default_augment_fold%d' % (model, i + 1) for i in range(cross_valid_num)]
-    k_fold_optimal_augment_model_paths = ['models/%s_optimal_augment_fold%d' % (model, i + 1) for i in range(cross_valid_num)]
+    k_fold_default_augment_model_paths = ['models/%s_default_augment_fold%d.pth' % (model, i + 1) for i in range(cross_valid_num)]
+    k_fold_optimal_augment_model_paths = ['models/%s_optimal_augment_fold%d.pth' % (model, i + 3) for i in range(cross_valid_num)]
     parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_default_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None, is_final=True) for i in range(cross_valid_num)] + \
-                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=[ApplyFoundPolicy(policies=final_policy_set)], is_final=True) for i in range(cross_valid_num)]
+                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 3, num_classes=num_classes, augmentation=[ApplyFoundPolicy(policies=final_policy_set)], is_final=True) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs), leave=True)
-    print(tqdm_epoch)
     is_done = False
     for epoch in tqdm_epoch:
         while True:
             epochs = OrderedDict()
             for exp_idx in range(cross_valid_num):
                 try:
-                    epoch_log = open(k_fold_default_augment_model_paths[exp_idx] + "_epoch.txt", "r")
+                    epoch_log = open(k_fold_default_augment_model_paths[exp_idx][:-4] + "_epoch.txt", "r")
                     epoch_log_value = int(epoch_log.readline().rstrip())
                     epochs['default_exp%d' % (exp_idx + 1)] = epoch_log_value
                 except Exception as e:
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                     pass
 
                 try:
-                    epoch_log = open(k_fold_optimal_augment_model_paths[exp_idx] + "_epoch.txt", "r")
+                    epoch_log = open(k_fold_optimal_augment_model_paths[exp_idx][:-4] + "_epoch.txt", "r")
                     epoch_log_value = int(epoch_log.readline().rstrip())
                     epochs['optimal_exp%d' % (exp_idx + 1)] = epoch_log_value
                 except Exception as e:
