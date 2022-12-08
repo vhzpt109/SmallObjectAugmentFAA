@@ -4,5 +4,6 @@ __pycache__/*
 models*/*
 PycharmProjects/*
 visualization/*
+coco_result/*
 logs*/*
 *json
