@@ -1,6 +1,7 @@
 import os
 import time
 import warnings
+import gc
 from collections import OrderedDict
 
 import ray
@@ -48,11 +49,11 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
                                                                      fold_idx=cross_valid_fold,
                                                                      augmentation=augmentation)
 
-    checkpoint = torch.load(model_path)
-    model.load_state_dict(checkpoint["state_dict"])
+    # checkpoint = torch.load(model_path)
+    # model.load_state_dict(checkpoint["state_dict"])
 
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.Adam(params, lr=1e-4)
+    optimizer = torch.optim.Adam(params, lr=0.0001)
 
     writer_loss = SummaryWriter(log_dir='logs/%d-fold/loss' % cross_valid_fold)
     writer_loss_classifier = SummaryWriter(log_dir='logs/%d-fold/loss_classifier' % cross_valid_fold)
@@ -60,18 +61,27 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
     writer_loss_objectness = SummaryWriter(log_dir='logs/%d-fold/loss_objectness' % cross_valid_fold)
     writer_loss_rpn_box_reg = SummaryWriter(log_dir='logs/%d-fold/loss_rpn_box_reg' % cross_valid_fold)
     writer_map = SummaryWriter(log_dir='logs/%d-fold/map' % cross_valid_fold)
+    writer_map_large = SummaryWriter(log_dir='logs/%d-fold/map_large' % cross_valid_fold)
+    writer_map_medium = SummaryWriter(log_dir='logs/%d-fold/map_medium' % cross_valid_fold)
     writer_map_small = SummaryWriter(log_dir='logs/%d-fold/map_small' % cross_valid_fold)
 
-    map_max = checkpoint["map"]
+    # map_max = checkpoint["map"]
+    map_max = 0
     best_result = None
 
-    epoch_log = open(model_path[:-4] + "_epoch.txt", "r")
-    epoch_log_value = int(epoch_log.readline().rstrip())
-    epoch_log.close()
+    # epoch_log = open(model_path[:-4] + "_epoch.txt", "r")
+    # epoch_log_value = int(epoch_log.readline().rstrip())
+    # epoch_log.close()
 
-    print("fold %d, epoch %d, map_max : %f" % (cross_valid_fold, epoch_log_value, map_max))
+    gc.collect()
+    torch.cuda.empty_cache()
 
-    for epoch in range(epoch_log_value + 1, num_epochs + 1):
+    # print("fold %d, epoch %d, map_max : %f" % (cross_valid_fold, epoch_log_value, map_max))
+
+    for epoch in range(num_epochs + 1):
+        gc.collect()
+        torch.cuda.empty_cache()
+
         train_loss, train_loss_classifier, train_loss_box_reg, train_loss_objectness, train_loss_rpn_box_reg = 0, 0, 0, 0, 0
         model.train()
         for i, (images_batch, annotations_batch) in enumerate(train_data_loader):
@@ -86,14 +96,13 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
             losses.backward()
             optimizer.step()
 
+            print(losses)
+
             train_loss += losses
             train_loss_classifier += loss_dict['loss_classifier'].item()
             train_loss_box_reg += loss_dict['loss_box_reg'].item()
             train_loss_objectness += loss_dict['loss_objectness'].item()
             train_loss_rpn_box_reg += loss_dict['loss_rpn_box_reg'].item()
-
-        gc.collect()
-        torch.cuda.empty_cache()
 
         train_loss /= len(train_data_loader)
         train_loss_classifier /= len(train_data_loader)
@@ -145,6 +154,8 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
         result = metrics.compute()
 
         writer_map.add_scalar('map', result["map"], epoch)
+        writer_map_large.add_scalar('map_large', result["map_large"], epoch)
+        writer_map_medium.add_scalar('map_medium', result["map_medium"], epoch)
         writer_map_small.add_scalar('map_small', result["map_small"], epoch)
 
         print(f"valid epoch : %d, cross_valid_fold : %d, map: %f, map_small: %f" % (epoch, cross_valid_fold, result["map"], result["map_small"]))
@@ -191,7 +202,7 @@ if __name__ == "__main__":
     cross_valid_ratio = 0.25
     num_epochs = 200
     num_classes = 19
-    batch_size = 10
+    batch_size = 8
 
     add_filehandler(logger, os.path.join('models', '%s_%s_train_with_finalpolicy.log' % (dataset, model)))
     logger.info('configuration...')
@@ -232,8 +243,8 @@ if __name__ == "__main__":
 
     k_fold_default_augment_model_paths = ['models/%s_default_augment_fold%d.pth' % (model, i + 1) for i in range(cross_valid_num)]
     k_fold_optimal_augment_model_paths = ['models/%s_optimal_augment_fold%d.pth' % (model, i + 3) for i in range(cross_valid_num)]
-    parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_default_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None, is_final=True) for i in range(cross_valid_num)] + \
-                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 3, num_classes=num_classes, augmentation=[ApplyFoundPolicy(policies=final_policy_set)], is_final=True) for i in range(cross_valid_num)]
+    parallel_train_optimal_augment = [train_model.remote(model_path=k_fold_default_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 1, num_classes=num_classes, augmentation=None, is_final=False) for i in range(cross_valid_num)] + \
+                                     [train_model.remote(model_path=k_fold_optimal_augment_model_paths[i], num_epochs=num_epochs, cross_valid_fold=i + 3, num_classes=num_classes, augmentation=[ApplyFoundPolicy(policies=final_policy_set)], is_final=False) for i in range(cross_valid_num)]
 
     tqdm_epoch = tqdm(range(num_epochs), leave=True)
     is_done = False
