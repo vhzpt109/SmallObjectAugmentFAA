@@ -27,8 +27,10 @@ def getFasterRCNN(num_classes):
     return model
 
 
-def geRetinaNet(num_classes):
-    backbone = retinanet_resnet50_fpn(pretrained=True)
-    model = RetinaNet(backbone, num_classes=num_classes, min_size=1024, max_size=1024, nms_thresh=0.3)
+def getRetinaNet(num_classes):
+    # backbone = resnet_fpn_backbone('resnet50', pretrained=True)
+    # model = RetinaNet(backbone, num_classes=num_classes, min_size=1024, max_size=1024, nms_thresh=0.3)
+
+    model = retinanet_resnet50_fpn(pretrained_backbone=True, num_classes=num_classes)
 
     return model
