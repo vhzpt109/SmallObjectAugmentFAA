@@ -17,8 +17,8 @@ def get_kfold_dataloaders(dataroot, type='train', batch_size=8, fold_idx=0, augm
     train_sampler = SubsetSampler(train_idx)
     valid_sampler = SubsetSampler(valid_idx)
 
-    train_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=train_sampler, collate_fn=collate_fn)
-    valid_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=valid_sampler, collate_fn=collate_fn)
+    train_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=train_sampler, collate_fn=collate_fn, pin_memory=True)
+    valid_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8, sampler=valid_sampler, collate_fn=collate_fn, pin_memory=True)
 
     return train_data_loader, valid_data_loader
 
