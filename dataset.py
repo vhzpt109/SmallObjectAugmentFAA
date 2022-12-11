@@ -68,7 +68,7 @@ class DOTADataset(Dataset):
 
         try:
             np.testing.assert_equal(len(boxes) > 0, True)  # check error occurring bbox
-            np.testing.assert_equal(np.all([boxes[:, :] > 0]), True)  # check error occurring bbox
+            np.testing.assert_equal(np.all([boxes[:, :] >= 0]), True)  # check error occurring bbox
             np.testing.assert_equal(np.all([boxes[:, :] < w, boxes[:, :] < h]), True)  # check error occurring bbox
         except AssertionError:
             del self.img_list[index]
