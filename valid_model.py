@@ -4,7 +4,8 @@ import warnings
 import ray
 import torch
 
-from dotautils import get_kfold_dataloaders, get_dataloaders
+from dotautils import get_kfold_dataloaders#, get_dataloaders
+from cocoutils import get_dataloaders
 from loggingutil import get_logger, add_filehandler
 from metric import MAPMetrics
 from models import getFasterRCNN
@@ -27,7 +28,7 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
     # print('Current cuda device:', torch.cuda.current_device())
     # print('Count of using GPUs:', torch.cuda.device_count())
 
-    model = getFasterRCNN(num_classes=num_classes).to(device)
+    model = MaskRCNN(num_classes=num_classes).to(device)
 
     metrics = MAPMetrics()
 
@@ -73,7 +74,6 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
                         scores=scores_preds
                     )
                 )
-
     metrics.update(preds=preds, target=targets)
     result = metrics.compute()
 
@@ -83,8 +83,9 @@ def train_model(model_path, num_epochs, cross_valid_fold, num_classes, augmentat
 
     return model, cross_valid_fold, result
 
+
 if __name__ == "__main__":
-    dataroot = "/YDE/DOTA/split_ss_dota"
+    dataroot = "/YDE/COCO"
     dataset = "DOTA"
     model = "Faster_R-CNN"
     # until = 5
