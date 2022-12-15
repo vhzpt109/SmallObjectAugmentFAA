@@ -73,7 +73,7 @@ if __name__ == "__main__":
     if os.path.exists(model_path):
         print("%s Model Exist! Load Model.." % model_path)
         checkpoint = torch.load(model_path)
-        # model.load_state_dict(checkpoint["state_dict"])
+        model.load_state_dict(checkpoint["state_dict"])
         model.eval()
 
         inference_results = []
